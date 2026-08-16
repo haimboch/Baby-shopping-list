@@ -277,9 +277,21 @@ UNKNOWN_VALUES = {"לא ידוע", "unknown", "n/a", "na", "none", "null", "-"}
 def meaningful(v: str | None) -> str | None:
     if v is None:
         return None
+
     s = str(v).strip()
     if not s or s.lower() in UNKNOWN_VALUES:
         return None
+
+    # Some Israeli transparency feeds use 0 / 0.00 in QtyInPackage as a
+    # placeholder for "unknown". Treat numeric zero as missing so the parser
+    # can fall back to the real Quantity field.
+    normalized = s.replace(",", "").strip()
+    try:
+        if float(normalized) == 0:
+            return None
+    except ValueError:
+        pass
+
     return s
 
 
