@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import time
+import re
 from datetime import datetime, timezone
 from typing import Any
 import requests
@@ -34,24 +35,49 @@ class MetadataEnricher:
         self.remaining = max(0, int(limit))
         self._last_call_monotonic: float | None = None
 
-    def _catalog_known(self, barcodes: list[str]) -> set[str]:
+    def _catalog_complete(
+        self, barcode_to_need: dict[str, str]
+    ) -> set[str]:
+        """Return only barcodes whose catalog metadata is complete enough.
+
+        A barcode that exists but is missing package_quantity is intentionally
+        retried. Diapers/formula also require size/stage.
+        """
+        barcodes = list(barcode_to_need)
         if not barcodes:
             return set()
-        known: set[str] = set()
-        # Keep URL size modest.
+
+        complete: set[str] = set()
         for i in range(0, len(barcodes), 40):
             chunk = barcodes[i:i+40]
             quoted = ",".join(chunk)
             rows = self.db.select(
                 "baby_product_catalog",
                 {
-                    "select": "barcode",
+                    "select": "barcode,brand,dimension_value,package_quantity,package_unit",
                     "active": "eq.true",
                     "barcode": f"in.({quoted})",
                 },
             )
-            known.update(str(r.get("barcode")) for r in rows if r.get("barcode"))
-        return known
+            for row in rows:
+                barcode = str(row.get("barcode") or "")
+                need = barcode_to_need.get(barcode)
+                if not barcode or not need:
+                    continue
+
+                has_brand = bool(row.get("brand"))
+                has_package = row.get("package_quantity") not in (None, "")
+                has_dimension = row.get("dimension_value") not in (None, "")
+
+                if need == "wipes":
+                    is_complete = has_brand and has_package
+                else:
+                    is_complete = has_brand and has_package and has_dimension
+
+                if is_complete:
+                    complete.add(barcode)
+
+        return complete
 
     def _fetch_product(self, barcode: str) -> dict[str, Any] | None:
         if not self.api_key or self.remaining <= 0:
@@ -82,6 +108,50 @@ class MetadataEnricher:
         data = payload.get("data")
         return data if isinstance(data, dict) else None
 
+    def _package_from_api_payload(
+        self, product: dict[str, Any], need_key: str
+    ) -> tuple[float | None, str | None]:
+        """Extract package size from documented or extra product metadata."""
+        unit_qty = str(product.get("unitQty") or product.get("unit_qty") or "").strip()
+
+        count_keys = (
+            "qtyInPackage", "quantityInPackage", "packageQuantity",
+            "packageQty", "unitsInPackage", "numberOfUnits", "packQty",
+            "volume", "quantity"
+        )
+
+        if need_key in {"diapers", "wipes"}:
+            for key in count_keys:
+                value = product.get(key)
+                if value in (None, ""):
+                    continue
+                try:
+                    number = float(str(value).replace(",", ".").strip())
+                    if number > 1:
+                        return number, "יחידות"
+                except ValueError:
+                    pass
+
+        if need_key == "formula" and re.search(r"גרם|gr\b|grams?\b|\bg\b", unit_qty, re.I):
+            for key in ("volume", "quantity", "packageQuantity", "packageQty"):
+                value = product.get(key)
+                if value in (None, ""):
+                    continue
+                try:
+                    number = float(str(value).replace(",", ".").strip())
+                    if number > 1:
+                        return number, "גרם"
+                except ValueError:
+                    pass
+
+        scalar_parts: list[str] = []
+        for value in product.values():
+            if isinstance(value, (str, int, float)) and value not in (None, ""):
+                scalar_parts.append(str(value))
+        blob = " ".join(scalar_parts)
+        return parse_package_quantity(blob, need_key, None, unit_qty)
+
+
     def _catalog_row(self, expected_need: str, product: dict[str, Any]) -> dict[str, Any] | None:
         barcode = str(product.get("barcode") or "").strip()
         name = str(product.get("name") or "").strip()
@@ -104,8 +174,8 @@ class MetadataEnricher:
             return None
 
         dimension_type, dimension_value = parse_dimension(name, expected_need)
-        package_quantity, package_unit = parse_package_quantity(
-            name, expected_need, None, unit_qty
+        package_quantity, package_unit = self._package_from_api_payload(
+            product, expected_need
         )
 
         meta = NEED_META[expected_need]
@@ -138,6 +208,8 @@ class MetadataEnricher:
             "skipped": 0,
             "errors": [],
             "remaining_budget": self.remaining,
+            "api_field_keys": [],
+            "unit_qty_samples": [],
         }
         if not self.api_key or self.remaining <= 0:
             stats["skipped"] = len(price_rows)
@@ -166,8 +238,15 @@ class MetadataEnricher:
                 str(r.get("barcode")),
             ),
         )
-        known = self._catalog_known([str(r["barcode"]) for r in candidates])
-        candidates = [r for r in candidates if str(r["barcode"]) not in known]
+        barcode_to_need = {
+            str(r["barcode"]): str(r["need_key"]) for r in candidates
+        }
+        complete = self._catalog_complete(barcode_to_need)
+        candidates = [
+            r for r in candidates if str(r["barcode"]) not in complete
+        ]
+        stats["catalog_complete_skipped"] = len(complete)
+        stats["catalog_incomplete_or_new"] = len(candidates)
 
         for row in candidates:
             if self.remaining <= 0:
@@ -180,6 +259,24 @@ class MetadataEnricher:
                 if not product:
                     stats["skipped"] += 1
                     continue
+
+                for key in product.keys():
+                    if key not in stats["api_field_keys"]:
+                        stats["api_field_keys"].append(key)
+
+                if len(stats["unit_qty_samples"]) < 5:
+                    stats["unit_qty_samples"].append({
+                        "barcode": barcode,
+                        "unitQty": product.get("unitQty"),
+                        "quantity_fields": {
+                            k: product.get(k) for k in (
+                                "qtyInPackage", "quantityInPackage", "packageQuantity",
+                                "packageQty", "unitsInPackage", "numberOfUnits",
+                                "packQty", "volume", "quantity"
+                            ) if k in product
+                        },
+                    })
+
                 catalog = self._catalog_row(expected_need, product)
                 if not catalog:
                     stats["skipped"] += 1

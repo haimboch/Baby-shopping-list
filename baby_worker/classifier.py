@@ -134,7 +134,9 @@ def parse_package_quantity(
     if q and q.lower() not in {"לא ידוע", "unknown", "n/a"}:
         try:
             value = float(q)
-            if value > 0:
+            # Generic retailer Quantity fields are often "1" meaning one pack,
+            # not one diaper/wipe. Never treat 1 as package content.
+            if value > 1:
                 return value, "יחידות"
         except ValueError:
             pass
@@ -145,5 +147,7 @@ def parse_package_quantity(
 
     units = re.search(r"(\d+)\s*(?:יחידות|יחידה|יח['׳]?|units?|pcs?)\b", s, re.I)
     if units:
-        return float(units.group(1)), "יחידות"
+        value = float(units.group(1))
+        if value > 1:
+            return value, "יחידות"
     return None, "יחידות"

@@ -10,9 +10,16 @@ from .classifier import classify_need, infer_brand, parse_dimension, parse_packa
 
 CODE_KEYS = ("ItemCode", "Barcode", "BarCode", "ProductCode", "Code")
 NAME_KEYS = ("ItemName", "ProductName", "Name")
+DESCRIPTION_KEYS = (
+    "ManufacturerItemDescription", "ItemDescription", "ProductDescription",
+    "Description", "LongDescription", "ItemLongName"
+)
 PRICE_KEYS = ("ItemPrice", "Price", "RegularPrice")
 MANUFACTURER_KEYS = ("ManufacturerName", "Manufacturer", "BrandName", "Brand")
-QTY_KEYS = ("QtyInPackage", "QuantityInPackage", "Quantity")
+QTY_KEYS = (
+    "QtyInPackage", "QuantityInPackage", "PackageQuantity", "PackageQty",
+    "UnitsInPackage", "NumberOfUnits", "NoOfUnits", "PackQty", "Quantity"
+)
 UNIT_QTY_KEYS = ("UnitQty", "UnitQuantity", "UnitOfMeasure", "UnitOfMeasurePrice")
 STORE_KEYS = ("StoreId", "StoreID", "StoreCode")
 SUBCHAIN_KEYS = ("SubChainId", "SubChainID", "SubChainCode")
@@ -58,6 +65,40 @@ def root_first(root: ET.Element, keys: Iterable[str]) -> str | None:
         if local(el.tag).lower() in wanted and el.text and el.text.strip():
             return el.text.strip()
     return None
+
+def metadata_candidates(d: dict[str, str]) -> dict[str, str]:
+    """Keep useful product metadata without storing the entire retailer row."""
+    wanted_fragments = (
+        "name", "description", "manufacturer", "brand", "qty", "quantity",
+        "package", "unit", "measure", "weight", "volume", "size", "stage"
+    )
+    out: dict[str, str] = {}
+    for k, v in d.items():
+        if not v:
+            continue
+        kl = k.lower()
+        if any(fragment in kl for fragment in wanted_fragments):
+            out[k] = v
+    return out
+
+
+def metadata_blob(d: dict[str, str], name: str, manufacturer: str | None) -> str:
+    """Text used for metadata extraction, not for product classification."""
+    parts: list[str] = [name]
+    if manufacturer:
+        parts.append(manufacturer)
+
+    for key in DESCRIPTION_KEYS:
+        value = first(d, (key,))
+        if value:
+            parts.append(value)
+
+    for _, value in metadata_candidates(d).items():
+        if value and value not in parts:
+            parts.append(value)
+
+    return " ".join(parts)
+
 
 def safe_float(v: Any) -> float | None:
     if v in (None, ""):
@@ -145,9 +186,10 @@ def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[d
         manufacturer = first(d, MANUFACTURER_KEYS)
         qty_in_package = first(d, QTY_KEYS)
         unit_qty = first(d, UNIT_QTY_KEYS)
-        dimension_type, dimension_value = parse_dimension(name, need_key)
+        meta_text = metadata_blob(d, name, manufacturer)
+        dimension_type, dimension_value = parse_dimension(meta_text, need_key)
         package_quantity, package_unit = parse_package_quantity(
-            name, need_key, qty_in_package, unit_qty
+            meta_text, need_key, qty_in_package, unit_qty
         )
         rows.append({
             "source_name": source_name,
@@ -157,7 +199,7 @@ def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[d
             "need_key": need_key,
             "dimension_type": dimension_type,
             "dimension_value": dimension_value,
-            "brand": infer_brand(name, manufacturer),
+            "brand": infer_brand(meta_text, manufacturer),
             "product_name": name,
             "package_quantity": package_quantity,
             "package_unit": package_unit,
@@ -168,6 +210,7 @@ def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[d
                 "manufacturer": manufacturer,
                 "qty_in_package": qty_in_package,
                 "unit_qty": unit_qty,
+                "metadata_candidates": metadata_candidates(d),
             },
         })
     return dedupe(rows, ("source_name", "branch_code", "barcode"))
