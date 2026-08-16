@@ -99,7 +99,8 @@ def to_db_price(row: dict[str, Any]) -> dict[str, Any]:
         "package_unit": row.get("package_unit"),
         "regular_price": row["regular_price"],
         "promo_price": row.get("promo_price"),
-        "effective_price": row.get("effective_price") or row["regular_price"],
+        # effective_price is a GENERATED ALWAYS column in Supabase/Postgres.
+        # Do not send it on INSERT/UPSERT; the database calculates it automatically.
         "promo_description": row.get("promo_description"),
         "promo_start_at": row.get("promo_start_at"),
         "promo_end_at": row.get("promo_end_at"),
