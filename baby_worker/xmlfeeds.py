@@ -331,20 +331,37 @@ def extract_package_quantity(
     unit_qty = meaningful(first(d, ("UnitQty", "UnitQuantity")))
     unit_measure = meaningful(first(d, ("UnitOfMeasure",)))
 
-    # First honor explicit package fields when they contain a meaningful number.
+    # Formula is special: in several transparency feeds QtyInPackage means
+    # "number of packages" (often 1), while Quantity is the actual can weight.
+    # Example from Shufersal:
+    #   Quantity=700, QtyInPackage=1, UnitQty=גרם, UnitOfMeasure=100 גרם
+    # The correct package quantity is 700g, not 1g.
+    if need_key == "formula":
+        unit_text = f"{unit_qty or ''} {unit_measure or ''}"
+        grams_signal = bool(re.search(r"גרם|gr\b|grams?\b|\bg\b", unit_text, re.I))
+
+        if raw_quantity is not None and raw_quantity > 1 and grams_signal:
+            return raw_quantity, "גרם"
+
+        # If Quantity is unavailable, an explicit package field can still be
+        # useful, but only after the real weight candidate above was checked.
+        if explicit_pack:
+            qty, unit = parse_package_quantity(
+                desc_text, need_key, explicit_pack, unit_qty
+            )
+            if qty is not None and qty > 1:
+                return qty, unit
+
+        # Do NOT feed UnitOfMeasure='100 גרם' into this fallback, because that
+        # is a comparison unit, not the package weight. The product name /
+        # description may still contain the real package weight.
+        return parse_package_quantity(desc_text, need_key, None, unit_qty)
+
+    # For non-formula categories keep the existing explicit-package behavior.
     if explicit_pack:
         qty, unit = parse_package_quantity(desc_text, need_key, explicit_pack, unit_qty)
         if qty is not None:
             return qty, unit
-
-    if need_key == "formula":
-        unit_text = f"{unit_qty or ''} {unit_measure or ''}"
-        grams_signal = bool(re.search(r"גרם|gr\b|grams?\b|\bg\b", unit_text, re.I))
-        if raw_quantity is not None and raw_quantity > 1 and grams_signal:
-            return raw_quantity, "גרם"
-        # Do NOT feed UnitOfMeasure='100 גרם' into this fallback, because that
-        # is a comparison unit, not the package weight.
-        return parse_package_quantity(desc_text, need_key, None, unit_qty)
 
     if need_key == "diapers":
         units_signal = bool(re.search(r"יחיד|units?|pcs?", f"{unit_qty or ''} {unit_measure or ''}", re.I))
