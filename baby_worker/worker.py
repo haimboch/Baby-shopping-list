@@ -122,6 +122,10 @@ def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str, Any]:
+    # Set this BEFORE importing the scraper package. Some package configuration
+    # is read during import.
+    os.environ["ENABLED_FILE_TYPES"] = "STORE_FILE,PRICE_FILE,PRICE_FULL_FILE,PROMO_FILE,PROMO_FULL_FILE"
+
     try:
         from il_supermarket_scarper import ScarpingTask
         from il_supermarket_scarper.utils import _now, Logger
@@ -129,8 +133,6 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
         raise RuntimeError("Missing il-supermarket-scraper. Run: pip install -r requirements.txt") from e
 
     Logger.set_logging_level(os.environ.get("SCRAPER_LOG_LEVEL", "WARNING"))
-    # Official package documents this env var for restricting file types.
-    os.environ["ENABLED_FILE_TYPES"] = "STORE_FILE,PRICE_FULL_FILE,PROMO_FULL_FILE"
 
     scraper = ScarpingTask(
         output_configuration={"output_mode": "queue", "queue_type": "memory"},
@@ -145,21 +147,38 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
     store_rows: list[dict[str, Any]] = []
     files_seen = 0
     errors: list[str] = []
+    kind_counts: dict[str, int] = defaultdict(int)
+    sample_files: list[str] = []
 
     try:
         for name, file_output in scraper.consume().items():
             async for msg in file_output.queue_handler.get_all_messages():
-                files_seen += 1
                 file_name = msg.get("file_name") or ""
                 content = msg.get("file_content") or b""
+
+                if not file_name or not content:
+                    errors.append(
+                        f"queue message missing file_name/file_content; keys={list(msg.keys())}"
+                    )
+                    continue
+
+                files_seen += 1
                 kind = file_kind(file_name)
+                kind_counts[kind] += 1
+                if len(sample_files) < 12:
+                    sample_files.append(file_name)
+
                 try:
                     if kind == "stores":
                         store_rows.extend(parse_stores(content, scraper_name, file_name))
-                    elif kind == "price_full":
+                    elif kind in ("price_full", "price"):
+                        # Incremental PRICE_FILE and full PRICE_FULL_FILE use the
+                        # same item fields for the data we need.
                         price_rows.extend(parse_price_rows(content, scraper_name, file_name))
-                    elif kind == "promo_full":
+                    elif kind in ("promo_full", "promo"):
                         promo_rows.extend(parse_promotions(content, scraper_name, file_name))
+                    else:
+                        errors.append(f"unrecognized file kind: {file_name}")
                 except Exception as exc:
                     errors.append(f"{file_name}: {type(exc).__name__}: {exc}")
     finally:
@@ -169,12 +188,19 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
             pass
         scraper.join()
 
+    print(
+        f"🔎 {scraper_name} file kinds: {dict(kind_counts)} | "
+        f"sample files: {sample_files[:5]}"
+    )
+
     return {
         "files_seen": files_seen,
         "price_rows": price_rows,
         "promo_rows": promo_rows,
         "store_rows": store_rows,
         "errors": errors,
+        "kind_counts": dict(kind_counts),
+        "sample_files": sample_files,
     }
 
 async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None):
@@ -234,6 +260,8 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "scraper": scraper_name,
                         "branches_saved": len(branches),
                         "promo_rows_seen": len(data["promo_rows"]),
+                        "file_kind_counts": data.get("kind_counts", {}),
+                        "sample_files": data.get("sample_files", [])[:12],
                         "parse_errors": data["errors"][:25],
                     },
                 })
