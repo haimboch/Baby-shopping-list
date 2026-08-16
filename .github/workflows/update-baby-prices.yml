@@ -6,7 +6,7 @@ on:
       file_limit:
         description: "Smoke-test file limit; leave blank for full run"
         required: false
-        default: "3"
+        default: "20"
 
 jobs:
   ingest:
@@ -33,6 +33,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CHEAPERSAL_API_KEY: ${{ secrets.CHEAPERSAL_API_KEY }}
+          ENRICHMENT_LIMIT: "8"
           ENABLED_CHAINS: super_pharm,shufersal,be,rami_levy,yochananof
           WORKER_FILE_LIMIT: ${{ github.event.inputs.file_limit }}
         run: python run_worker.py
