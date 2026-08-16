@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_stores
+from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_stores, timestamp_from_filename
 from .supabase_rest import SupabaseREST
 from .enrichment import MetadataEnricher
 
@@ -59,6 +59,105 @@ def normalize_timestamp(value: str | None) -> str | None:
         except ValueError:
             pass
     return None
+
+def freshness_dt(row: dict[str, Any]) -> datetime | None:
+    """Best available publication time for a normalized price row."""
+    value = normalize_timestamp(row.get("source_updated_at"))
+    if value:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    raw = row.get("raw_source") or {}
+    file_name = raw.get("file_name") if isinstance(raw, dict) else None
+    value = timestamp_from_filename(str(file_name or ""))
+    if value:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return None
+
+
+def metadata_score(row: dict[str, Any]) -> int:
+    return sum(
+        1 for value in (
+            row.get("brand"), row.get("dimension_value"),
+            row.get("package_quantity"), row.get("package_unit")
+        ) if value not in (None, "")
+    )
+
+
+def collapse_latest_prices(prices: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """One row per chain+branch+barcode, choosing the newest source snapshot."""
+    latest: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in prices:
+        key = (row["chain_id"], row["branch_code"], row["barcode"])
+        current = latest.get(key)
+        if current is None:
+            latest[key] = row
+            continue
+
+        cur_dt = freshness_dt(current)
+        new_dt = freshness_dt(row)
+        replace = False
+        if cur_dt is None and new_dt is not None:
+            replace = True
+        elif cur_dt is not None and new_dt is not None and new_dt > cur_dt:
+            replace = True
+        elif cur_dt == new_dt and metadata_score(row) > metadata_score(current):
+            replace = True
+        elif cur_dt is None and new_dt is None and metadata_score(row) > metadata_score(current):
+            replace = True
+
+        if replace:
+            latest[key] = row
+
+    return list(latest.values()), len(prices) - len(latest)
+
+
+def filter_stale_against_db(db: SupabaseREST, prices: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """Do not let an older retailer snapshot overwrite a newer DB row.
+
+    Same timestamps are allowed, which lets a parser upgrade repair metadata.
+    """
+    if not prices:
+        return prices, 0
+
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in prices:
+        groups[(row["chain_id"], row["branch_code"])].append(row)
+
+    existing: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for chain_id, branch_code in groups:
+        found = db.select(
+            "baby_retail_prices",
+            {
+                "select": "chain_id,branch_code,barcode,source_updated_at,raw_source",
+                "chain_id": f"eq.{chain_id}",
+                "branch_code": f"eq.{branch_code}",
+            },
+        )
+        for row in found:
+            existing[(str(row.get("chain_id")), str(row.get("branch_code")), str(row.get("barcode")))] = row
+
+    kept: list[dict[str, Any]] = []
+    stale = 0
+    for row in prices:
+        key = (row["chain_id"], row["branch_code"], row["barcode"])
+        old = existing.get(key)
+        if not old:
+            kept.append(row)
+            continue
+        old_dt = freshness_dt(old)
+        new_dt = freshness_dt(row)
+        if old_dt is not None and (new_dt is None or new_dt < old_dt):
+            stale += 1
+            continue
+        kept.append(row)
+
+    return kept, stale
+
 
 def merge_prices_and_promos(price_rows: list[dict[str, Any]], promos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     pmap = {(r["source_name"], r["branch_code"], r["barcode"]): r for r in promos}
@@ -142,7 +241,15 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
         multiprocessing=1,
         enabled_scrapers=[scraper_name],
     )
-    scraper.start(limit=file_limit, when_date=_now())
+
+    scrape_limit = file_limit
+    if scraper_name == "RAMI_LEVY" and file_limit is not None:
+        # A global limit of 20 can contain files from only one branch. Inspect a
+        # wider window for Rami, then keep only the newest row per branch below.
+        min_files = int(os.environ.get("RAMI_LEVY_MIN_SOURCE_FILES", "100"))
+        scrape_limit = max(file_limit, min_files)
+
+    scraper.start(limit=scrape_limit, when_date=_now())
 
     price_rows: list[dict[str, Any]] = []
     promo_rows: list[dict[str, Any]] = []
@@ -203,6 +310,8 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
         "errors": errors,
         "kind_counts": dict(kind_counts),
         "sample_files": sample_files,
+        "requested_file_limit": file_limit,
+        "scrape_file_limit": scrape_limit,
     }
 
 async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None, enricher: MetadataEnricher | None = None):
@@ -221,16 +330,11 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         merged = merge_prices_and_promos(data["price_rows"], data["promo_rows"])
         prices = [to_db_price(x) for x in merged]
 
-        # The same branch+barcode can appear more than once across incremental
-        # PRICE files. PostgreSQL cannot UPSERT the same conflict key twice in
-        # a single INSERT ... ON CONFLICT statement, so collapse duplicates
-        # before sending a batch to Supabase. Last row wins.
-        price_map = {
-            (p["chain_id"], p["branch_code"], p["barcode"]): p
-            for p in prices
-        }
-        duplicate_price_rows = len(prices) - len(price_map)
-        prices = list(price_map.values())
+        prices, duplicate_price_rows = collapse_latest_prices(prices)
+
+        stale_rows_skipped = 0
+        if db and not dry_run and prices:
+            prices, stale_rows_skipped = filter_stale_against_db(db, prices)
 
         # One-time metadata enrichment for previously unknown barcodes.
         # Prices still come from the retailer transparency files. Cheapersal is
@@ -288,6 +392,9 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "branches_saved": len(branches),
                         "promo_rows_seen": len(data["promo_rows"]),
                         "duplicate_price_rows_collapsed": duplicate_price_rows,
+                        "stale_rows_skipped": stale_rows_skipped,
+                        "requested_file_limit": data.get("requested_file_limit"),
+                        "scrape_file_limit": data.get("scrape_file_limit"),
                         "metadata_enrichment": enrichment_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
@@ -297,7 +404,8 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         print(
             f"✅ {scraper_name}: {len(prices)} unique baby price rows "
             f"from {data['files_seen']} files "
-            f"({duplicate_price_rows} duplicate rows collapsed)"
+            f"({duplicate_price_rows} duplicate rows collapsed, "
+            f"{stale_rows_skipped} stale rows skipped)"
         )
     except Exception as exc:
         if db and run_id and not dry_run:

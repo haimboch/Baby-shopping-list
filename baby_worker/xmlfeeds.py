@@ -4,6 +4,7 @@ import io
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from .classifier import classify_need, infer_brand, parse_dimension, parse_package_quantity
@@ -208,6 +209,23 @@ def branch_from_filename(file_name: str) -> tuple[str | None, str | None]:
         return None, m.group(2)
     return None, None
 
+def timestamp_from_filename(file_name: str) -> str | None:
+    """Extract retailer publication timestamp from common transparency filenames."""
+    stem = re.sub(r"\.(?:gz|xml)+$", "", file_name, flags=re.I)
+    # Retailer chain ids are also long digit sequences, so anchor dates to 20xx.
+    matches = list(re.finditer(r"(20\d{6})[-_]?(\d{4,6})(?:\D|$)", stem))
+    for m in reversed(matches):
+        date_part, time_part = m.group(1), m.group(2)
+        if len(time_part) == 4:
+            time_part += "00"
+        try:
+            dt = datetime.strptime(date_part + time_part, "%Y%m%d%H%M%S")
+        except ValueError:
+            continue
+        return dt.replace(tzinfo=timezone.utc).isoformat()
+    return None
+
+
 def file_kind(file_name: str) -> str:
     n = file_name.lower()
     if "stores" in n or n.startswith("store"):
@@ -255,7 +273,7 @@ def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[d
     fn_subchain, fn_branch = branch_from_filename(file_name)
     branch_code = root_store or fn_branch or "unknown"
     subchain = root_subchain or fn_subchain
-    updated = root_first(root, UPDATED_KEYS)
+    updated = root_first(root, UPDATED_KEYS) or timestamp_from_filename(file_name)
 
     rows: list[dict[str, Any]] = []
     for el in root.iter():
