@@ -219,7 +219,24 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         data = await collect_source(scraper_name, file_limit)
         merged = merge_prices_and_promos(data["price_rows"], data["promo_rows"])
         prices = [to_db_price(x) for x in merged]
+
+        # The same branch+barcode can appear more than once across incremental
+        # PRICE files. PostgreSQL cannot UPSERT the same conflict key twice in
+        # a single INSERT ... ON CONFLICT statement, so collapse duplicates
+        # before sending a batch to Supabase. Last row wins.
+        price_map = {
+            (p["chain_id"], p["branch_code"], p["barcode"]): p
+            for p in prices
+        }
+        duplicate_price_rows = len(prices) - len(price_map)
+        prices = list(price_map.values())
+
         branches = [to_db_branch(x) for x in data["store_rows"]]
+        branch_map = {
+            (b["chain_id"], b["branch_code"]): b
+            for b in branches
+        }
+        branches = list(branch_map.values())
 
         # Ensure a branch FK target exists even if a Stores file wasn't present in this run.
         known = {(b["chain_id"], b["branch_code"]) for b in branches}
@@ -261,17 +278,22 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "scraper": scraper_name,
                         "branches_saved": len(branches),
                         "promo_rows_seen": len(data["promo_rows"]),
+                        "duplicate_price_rows_collapsed": duplicate_price_rows,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
                         "parse_errors": data["errors"][:25],
                     },
                 })
-        print(f"✅ {scraper_name}: {len(prices)} baby price rows from {data['files_seen']} files")
+        print(
+            f"✅ {scraper_name}: {len(prices)} unique baby price rows "
+            f"from {data['files_seen']} files "
+            f"({duplicate_price_rows} duplicate rows collapsed)"
+        )
     except Exception as exc:
         if db and run_id and not dry_run:
             try:
                 db.patch("feed_ingestion_runs", {"id": run_id}, {
-                    "status": "error",
+                    "status": "failed",
                     "finished_at": utcnow(),
                     "error_message": f"{type(exc).__name__}: {exc}"[:1500],
                     "details": {"traceback": traceback.format_exc()[-5000:]},
