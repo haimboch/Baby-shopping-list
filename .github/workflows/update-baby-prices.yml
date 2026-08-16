@@ -1,0 +1,38 @@
+name: Update baby prices
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_limit:
+        description: "Smoke-test file limit; leave blank for full run"
+        required: false
+        default: "3"
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run parser self-test
+        run: python self_test.py
+
+      - name: Run baby price worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ENABLED_CHAINS: super_pharm,shufersal,be,rami_levy,yochananof
+          WORKER_FILE_LIMIT: ${{ github.event.inputs.file_limit }}
+        run: python run_worker.py
