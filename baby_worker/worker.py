@@ -1,13 +1,19 @@
 from __future__ import annotations
 import argparse
 import asyncio
+import gzip
+import html
 import json
 import os
+import re
 import sys
 import traceback
+from urllib.parse import unquote, urlparse
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
+
+import requests
 
 from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_stores, timestamp_from_filename, price_file_diagnostics
 from .supabase_rest import SupabaseREST
@@ -221,6 +227,196 @@ def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
         "active": True,
         "last_seen_at": utcnow(),
     }
+
+BE_INDEX_URL = "https://prices.shufersal.co.il/FileObject/UpdateCategory"
+BE_SUBCHAIN = "005"
+BE_FILE_RE = re.compile(
+    r"^(?P<kind>PriceFull|Price)7290027600007-005-(?P<branch>\d+)-"
+    r"(?P<timestamp>\d{8}-\d{6})\.gz$",
+    re.I,
+)
+
+
+def _be_links_from_html(page_html: str) -> list[dict[str, str]]:
+    """Extract official Be price links from a Shufersal transparency index page."""
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    href_pattern = r"href\s*=\s*[\"']([^\"']+)[\"']"
+
+    for href in re.findall(href_pattern, page_html or "", re.I):
+        url = html.unescape(href)
+        path = unquote(urlparse(url).path)
+        file_name = path.rsplit("/", 1)[-1]
+        m = BE_FILE_RE.match(file_name)
+        if not m or url in seen:
+            continue
+        seen.add(url)
+        out.append({
+            "url": url,
+            "file_name": file_name,
+            "kind": "price_full" if m.group("kind").lower() == "pricefull" else "price",
+            "branch_code": m.group("branch"),
+            "timestamp": m.group("timestamp"),
+        })
+    return out
+
+
+def _newest_per_branch(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    """One newest link per Be branch for one file kind."""
+    latest: dict[str, dict[str, str]] = {}
+    for item in items:
+        branch = item["branch_code"]
+        current = latest.get(branch)
+        if current is None or item["timestamp"] > current["timestamp"]:
+            latest[branch] = item
+    return sorted(latest.values(), key=lambda x: (x["branch_code"], x["timestamp"]))
+
+
+def _empty_direct_pass(pass_name: str, file_type: str, limit: int) -> dict[str, Any]:
+    return {
+        "pass_name": pass_name,
+        "file_types": [file_type],
+        "limit": limit,
+        "files_seen": 0,
+        "price_rows": [],
+        "promo_rows": [],
+        "store_rows": [],
+        "errors": [],
+        "kind_counts": {},
+        "sample_files": [],
+        "price_schema_diagnostics": [],
+    }
+
+
+def _download_be_price_pass(
+    session: requests.Session,
+    links: list[dict[str, str]],
+    *,
+    pass_name: str,
+    file_type: str,
+    limit: int,
+) -> dict[str, Any]:
+    result = _empty_direct_pass(pass_name, file_type, limit)
+    selected = _newest_per_branch(links)[:limit]
+
+    for item in selected:
+        try:
+            response = session.get(item["url"], timeout=45)
+            response.raise_for_status()
+            payload = response.content
+            if payload[:2] == b"\x1f\x8b":
+                payload = gzip.decompress(payload)
+
+            xml_name = item["file_name"][:-3] + ".xml"
+            parsed = parse_price_rows(payload, "SHUFERSAL", xml_name)
+            for row in parsed:
+                row["subchain_id"] = BE_SUBCHAIN
+
+            result["price_rows"].extend(parsed)
+            result["files_seen"] += 1
+            result["kind_counts"][item["kind"]] = result["kind_counts"].get(item["kind"], 0) + 1
+            if len(result["sample_files"]) < 12:
+                result["sample_files"].append(xml_name)
+
+            if not parsed and len(result["price_schema_diagnostics"]) < 3:
+                result["price_schema_diagnostics"].append(price_file_diagnostics(payload, xml_name))
+        except Exception as exc:
+            result["errors"].append(f'{item["file_name"]}: {type(exc).__name__}: {exc}')
+
+    print(
+        f"🔎 SHUFERSAL/{pass_name} official Be files: "
+        f"{result['files_seen']} | baby_rows={len(result['price_rows'])}"
+    )
+    return result
+
+
+def _collect_be_official(
+    *,
+    full_limit: int,
+    incremental_limit: int,
+    max_pages: int,
+    session: requests.Session | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Find and download Be (subchain 005) files directly from the official index."""
+    owns_session = session is None
+    session = session or requests.Session()
+    session.headers.update({
+        "User-Agent": "baby-price-worker/0.17 (+price-transparency)",
+        "Accept": "text/html,application/xhtml+xml,*/*",
+    })
+
+    full_links: list[dict[str, str]] = []
+    incremental_links: list[dict[str, str]] = []
+    scan_errors: list[str] = []
+    pages_scanned = 0
+
+    try:
+        for page in range(1, max_pages + 1):
+            try:
+                response = session.get(
+                    BE_INDEX_URL,
+                    params={
+                        "catID": 0,
+                        "page": page,
+                        "sort": "Branch",
+                        "sortdir": "ASC",
+                        "storeId": 0,
+                    },
+                    timeout=30,
+                )
+                response.raise_for_status()
+                page_links = _be_links_from_html(response.text)
+                pages_scanned += 1
+
+                for item in page_links:
+                    if item["kind"] == "price_full":
+                        full_links.append(item)
+                    elif item["kind"] == "price":
+                        incremental_links.append(item)
+
+                if (
+                    len(_newest_per_branch(full_links)) >= full_limit
+                    and len(_newest_per_branch(incremental_links)) >= incremental_limit
+                ):
+                    break
+            except Exception as exc:
+                scan_errors.append(f"index page {page}: {type(exc).__name__}: {exc}")
+                if len(scan_errors) >= 5:
+                    break
+
+        full_pass = _download_be_price_pass(
+            session,
+            full_links,
+            pass_name="be_full_bootstrap",
+            file_type="PRICE_FULL_FILE",
+            limit=full_limit,
+        )
+        incremental_pass = _download_be_price_pass(
+            session,
+            incremental_links,
+            pass_name="be_incremental",
+            file_type="PRICE_FILE",
+            limit=incremental_limit,
+        )
+        full_pass["errors"] = scan_errors + full_pass["errors"]
+
+        stats = {
+            "subchain_id": BE_SUBCHAIN,
+            "pages_scanned": pages_scanned,
+            "index_errors": scan_errors[:5],
+            "full_links_found": len(_newest_per_branch(full_links)),
+            "incremental_links_found": len(_newest_per_branch(incremental_links)),
+            "full_files_seen": full_pass["files_seen"],
+            "full_baby_rows": len(full_pass["price_rows"]),
+            "incremental_files_seen": incremental_pass["files_seen"],
+            "incremental_baby_rows": len(incremental_pass["price_rows"]),
+            "full_snapshot_found": full_pass["files_seen"] > 0,
+        }
+        return [full_pass, incremental_pass], stats
+    finally:
+        if owns_session:
+            session.close()
+
 
 async def _collect_scraper_pass(
     scraper_name: str,
@@ -443,24 +639,17 @@ async def collect_source(
         return data
 
     if scraper_name == "SHUFERSAL":
-        # Shufersal publishes several file families. A small mixed limit can
-        # be consumed by Promo files before we ever see prices, so explicitly
-        # bootstrap from full price snapshots and then layer incrementals.
-        full_limit_default = file_limit if file_limit is not None else 20
-        full_limit = int(
-            os.environ.get(
-                "SHUFERSAL_FULL_FILE_LIMIT",
-                str(max(1, full_limit_default)),
-            )
+        stores_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["STORE_FILE"],
+            limit=1,
+            pass_name="stores",
         )
 
+        full_limit_default = file_limit if file_limit is not None else 20
+        full_limit = int(os.environ.get("SHUFERSAL_FULL_FILE_LIMIT", str(max(1, full_limit_default))))
         incremental_limit_default = file_limit if file_limit is not None else 20
-        incremental_limit = int(
-            os.environ.get(
-                "SHUFERSAL_INCREMENTAL_FILE_LIMIT",
-                str(max(1, incremental_limit_default)),
-            )
-        )
+        incremental_limit = int(os.environ.get("SHUFERSAL_INCREMENTAL_FILE_LIMIT", str(max(1, incremental_limit_default))))
 
         full_pass = await _collect_scraper_pass(
             scraper_name,
@@ -469,7 +658,6 @@ async def collect_source(
             pass_name="full_bootstrap",
             collect_schema_diagnostics=True,
         )
-
         incremental_pass = await _collect_scraper_pass(
             scraper_name,
             file_types=["PRICE_FILE"],
@@ -478,14 +666,26 @@ async def collect_source(
             collect_schema_diagnostics=not bool(full_pass["price_rows"]),
         )
 
-        data = _merge_source_passes(
-            scraper_name,
-            file_limit,
-            [full_pass, incremental_pass],
+        be_full_default = file_limit if file_limit is not None else 20
+        be_full_limit = int(os.environ.get("BE_FULL_FILE_LIMIT", str(max(1, be_full_default))))
+        be_inc_default = file_limit if file_limit is not None else 20
+        be_incremental_limit = int(os.environ.get("BE_INCREMENTAL_FILE_LIMIT", str(max(1, be_inc_default))))
+        be_max_pages = int(os.environ.get("BE_INDEX_MAX_PAGES", "100"))
+
+        be_passes, be_stats = _collect_be_official(
+            full_limit=be_full_limit,
+            incremental_limit=be_incremental_limit,
+            max_pages=be_max_pages,
         )
+
+        all_passes = [stores_pass, full_pass, incremental_pass, *be_passes]
+        data = _merge_source_passes(scraper_name, file_limit, all_passes)
         data["scrape_file_limit"] = {
-            "full": full_limit,
-            "incremental": incremental_limit,
+            "stores": 1,
+            "shufersal_full": full_limit,
+            "shufersal_incremental": incremental_limit,
+            "be_full": be_full_limit,
+            "be_incremental": be_incremental_limit,
         }
         data["shufersal_bootstrap"] = {
             "full_files_seen": full_pass["files_seen"],
@@ -494,6 +694,7 @@ async def collect_source(
             "incremental_baby_rows": len(incremental_pass["price_rows"]),
             "full_snapshot_found": full_pass["files_seen"] > 0,
         }
+        data["be_bootstrap"] = be_stats
         return data
 
     if scraper_name == "RAMI_LEVY":
@@ -625,6 +826,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "source_passes": data.get("source_passes", []),
                         "yohananof_bootstrap": data.get("yohananof_bootstrap"),
                         "shufersal_bootstrap": data.get("shufersal_bootstrap"),
+                        "be_bootstrap": data.get("be_bootstrap"),
                         "metadata_enrichment": enrichment_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
