@@ -222,16 +222,22 @@ def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
         "last_seen_at": utcnow(),
     }
 
-async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str, Any]:
-    # Set this BEFORE importing the scraper package. Some package configuration
-    # is read during import.
-    os.environ["ENABLED_FILE_TYPES"] = "STORE_FILE,PRICE_FILE,PRICE_FULL_FILE,PROMO_FILE,PROMO_FULL_FILE"
-
+async def _collect_scraper_pass(
+    scraper_name: str,
+    *,
+    file_types: list[str],
+    limit: int | None,
+    pass_name: str,
+    collect_schema_diagnostics: bool = False,
+) -> dict[str, Any]:
+    """Run one explicit scraper pass and normalize its queue output."""
     try:
         from il_supermarket_scarper import ScarpingTask
         from il_supermarket_scarper.utils import _now, Logger
     except ImportError as e:
-        raise RuntimeError("Missing il-supermarket-scraper. Run: pip install -r requirements.txt") from e
+        raise RuntimeError(
+            "Missing il-supermarket-scraper. Run: pip install -r requirements.txt"
+        ) from e
 
     Logger.set_logging_level(os.environ.get("SCRAPER_LOG_LEVEL", "WARNING"))
 
@@ -240,20 +246,11 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
         status_configuration={"database_type": "json", "base_path": "status_logs"},
         multiprocessing=1,
         enabled_scrapers=[scraper_name],
+        files_types=file_types,
+        max_size=50_000_000 if "PRICE_FULL_FILE" in file_types else None,
     )
 
-    scrape_limit = file_limit
-    if scraper_name == "RAMI_LEVY" and file_limit is not None:
-        # A global limit of 20 can contain files from only one branch.
-        min_files = int(os.environ.get("RAMI_LEVY_MIN_SOURCE_FILES", "100"))
-        scrape_limit = max(file_limit, min_files)
-    elif scraper_name == "YOHANANOF" and file_limit is not None:
-        # Yohananof PRICE files are incremental snapshots. Inspect a wider
-        # window so a smoke test is not judged from a handful of change files.
-        min_files = int(os.environ.get("YOHANANOF_MIN_SOURCE_FILES", "100"))
-        scrape_limit = max(file_limit, min_files)
-
-    scraper.start(limit=scrape_limit, when_date=_now())
+    scraper.start(limit=limit, when_date=_now())
 
     price_rows: list[dict[str, Any]] = []
     promo_rows: list[dict[str, Any]] = []
@@ -286,14 +283,10 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
                     if kind == "stores":
                         store_rows.extend(parse_stores(content, scraper_name, file_name))
                     elif kind in ("price_full", "price"):
-                        # Incremental PRICE_FILE and full PRICE_FULL_FILE use the
-                        # same normalized output. Keep diagnostics independent
-                        # from baby classification so zero baby rows are not
-                        # confused with a broken XML parser.
                         parsed_rows = parse_price_rows(content, scraper_name, file_name)
                         price_rows.extend(parsed_rows)
                         if (
-                            scraper_name == "YOHANANOF"
+                            collect_schema_diagnostics
                             and not parsed_rows
                             and len(price_schema_diagnostics) < 3
                         ):
@@ -301,11 +294,15 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
                                 price_file_diagnostics(content, file_name)
                             )
                     elif kind in ("promo_full", "promo"):
-                        promo_rows.extend(parse_promotions(content, scraper_name, file_name))
+                        promo_rows.extend(
+                            parse_promotions(content, scraper_name, file_name)
+                        )
                     else:
                         errors.append(f"unrecognized file kind: {file_name}")
                 except Exception as exc:
-                    errors.append(f"{file_name}: {type(exc).__name__}: {exc}")
+                    errors.append(
+                        f"{file_name}: {type(exc).__name__}: {exc}"
+                    )
     finally:
         try:
             scraper.stop()
@@ -314,11 +311,14 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
         scraper.join()
 
     print(
-        f"🔎 {scraper_name} file kinds: {dict(kind_counts)} | "
-        f"sample files: {sample_files[:5]}"
+        f"🔎 {scraper_name}/{pass_name} file kinds: {dict(kind_counts)} | "
+        f"files={files_seen} | baby_rows={len(price_rows)}"
     )
 
     return {
+        "pass_name": pass_name,
+        "file_types": list(file_types),
+        "limit": limit,
         "files_seen": files_seen,
         "price_rows": price_rows,
         "promo_rows": promo_rows,
@@ -326,10 +326,165 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
         "errors": errors,
         "kind_counts": dict(kind_counts),
         "sample_files": sample_files,
-        "requested_file_limit": file_limit,
-        "scrape_file_limit": scrape_limit,
         "price_schema_diagnostics": price_schema_diagnostics,
     }
+
+
+def _merge_source_passes(
+    scraper_name: str,
+    requested_file_limit: int | None,
+    passes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    price_rows: list[dict[str, Any]] = []
+    promo_rows: list[dict[str, Any]] = []
+    store_rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    kind_counts: dict[str, int] = defaultdict(int)
+    sample_files: list[str] = []
+    diagnostics: list[dict[str, Any]] = []
+    pass_summaries: list[dict[str, Any]] = []
+
+    for p in passes:
+        price_rows.extend(p["price_rows"])
+        promo_rows.extend(p["promo_rows"])
+        store_rows.extend(p["store_rows"])
+        errors.extend(p["errors"])
+
+        for kind, count in p["kind_counts"].items():
+            kind_counts[kind] += count
+
+        for file_name in p["sample_files"]:
+            if len(sample_files) < 12:
+                sample_files.append(file_name)
+
+        for diag in p["price_schema_diagnostics"]:
+            if len(diagnostics) < 3:
+                diagnostics.append(diag)
+
+        pass_summaries.append({
+            "pass_name": p["pass_name"],
+            "file_types": p["file_types"],
+            "limit": p["limit"],
+            "files_seen": p["files_seen"],
+            "baby_rows": len(p["price_rows"]),
+            "file_kind_counts": p["kind_counts"],
+            "sample_files": p["sample_files"][:5],
+            "errors": p["errors"][:5],
+        })
+
+    return {
+        "files_seen": sum(p["files_seen"] for p in passes),
+        "price_rows": price_rows,
+        "promo_rows": promo_rows,
+        "store_rows": store_rows,
+        "errors": errors,
+        "kind_counts": dict(kind_counts),
+        "sample_files": sample_files,
+        "requested_file_limit": requested_file_limit,
+        "scrape_file_limit": None,
+        "price_schema_diagnostics": diagnostics,
+        "source_passes": pass_summaries,
+    }
+
+
+async def collect_source(
+    scraper_name: str, file_limit: int | None
+) -> dict[str, Any]:
+    """Collect retailer data with a chain-specific source strategy."""
+
+    if scraper_name == "YOHANANOF":
+        full_limit_default = file_limit if file_limit is not None else 20
+        full_limit = int(
+            os.environ.get(
+                "YOHANANOF_FULL_FILE_LIMIT",
+                str(max(1, full_limit_default)),
+            )
+        )
+        incremental_limit_default = file_limit if file_limit is not None else 20
+        incremental_limit = int(
+            os.environ.get(
+                "YOHANANOF_INCREMENTAL_FILE_LIMIT",
+                str(max(1, incremental_limit_default)),
+            )
+        )
+
+        full_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PRICE_FULL_FILE"],
+            limit=full_limit,
+            pass_name="full_bootstrap",
+            collect_schema_diagnostics=True,
+        )
+
+        incremental_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PRICE_FILE"],
+            limit=incremental_limit,
+            pass_name="incremental",
+            collect_schema_diagnostics=not bool(full_pass["price_rows"]),
+        )
+
+        data = _merge_source_passes(
+            scraper_name,
+            file_limit,
+            [full_pass, incremental_pass],
+        )
+        data["scrape_file_limit"] = {
+            "full": full_limit,
+            "incremental": incremental_limit,
+        }
+        data["yohananof_bootstrap"] = {
+            "full_files_seen": full_pass["files_seen"],
+            "full_baby_rows": len(full_pass["price_rows"]),
+            "incremental_files_seen": incremental_pass["files_seen"],
+            "incremental_baby_rows": len(incremental_pass["price_rows"]),
+            "full_snapshot_found": full_pass["files_seen"] > 0,
+        }
+        return data
+
+    if scraper_name == "RAMI_LEVY":
+        base_limit = file_limit
+        if file_limit is not None:
+            min_files = int(
+                os.environ.get("RAMI_LEVY_MIN_SOURCE_FILES", "100")
+            )
+            base_limit = max(file_limit, min_files)
+
+        mixed_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=[
+                "STORE_FILE",
+                "PRICE_FILE",
+                "PRICE_FULL_FILE",
+                "PROMO_FILE",
+                "PROMO_FULL_FILE",
+            ],
+            limit=base_limit,
+            pass_name="mixed",
+        )
+        data = _merge_source_passes(
+            scraper_name, file_limit, [mixed_pass]
+        )
+        data["scrape_file_limit"] = base_limit
+        return data
+
+    broad_pass = await _collect_scraper_pass(
+        scraper_name,
+        file_types=[
+            "STORE_FILE",
+            "PRICE_FILE",
+            "PRICE_FULL_FILE",
+            "PROMO_FILE",
+            "PROMO_FULL_FILE",
+        ],
+        limit=file_limit,
+        pass_name="mixed",
+    )
+    data = _merge_source_passes(
+        scraper_name, file_limit, [broad_pass]
+    )
+    data["scrape_file_limit"] = file_limit
+    return data
 
 async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None, enricher: MetadataEnricher | None = None):
     source_db_name = SCRAPER_TO_DB[scraper_name]
@@ -413,6 +568,8 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "requested_file_limit": data.get("requested_file_limit"),
                         "scrape_file_limit": data.get("scrape_file_limit"),
                         "price_schema_diagnostics": data.get("price_schema_diagnostics", [])[:3],
+                        "source_passes": data.get("source_passes", []),
+                        "yohananof_bootstrap": data.get("yohananof_bootstrap"),
                         "metadata_enrichment": enrichment_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
