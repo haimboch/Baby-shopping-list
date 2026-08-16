@@ -442,6 +442,60 @@ async def collect_source(
         }
         return data
 
+    if scraper_name == "SHUFERSAL":
+        # Shufersal publishes several file families. A small mixed limit can
+        # be consumed by Promo files before we ever see prices, so explicitly
+        # bootstrap from full price snapshots and then layer incrementals.
+        full_limit_default = file_limit if file_limit is not None else 20
+        full_limit = int(
+            os.environ.get(
+                "SHUFERSAL_FULL_FILE_LIMIT",
+                str(max(1, full_limit_default)),
+            )
+        )
+
+        incremental_limit_default = file_limit if file_limit is not None else 20
+        incremental_limit = int(
+            os.environ.get(
+                "SHUFERSAL_INCREMENTAL_FILE_LIMIT",
+                str(max(1, incremental_limit_default)),
+            )
+        )
+
+        full_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PRICE_FULL_FILE"],
+            limit=full_limit,
+            pass_name="full_bootstrap",
+            collect_schema_diagnostics=True,
+        )
+
+        incremental_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PRICE_FILE"],
+            limit=incremental_limit,
+            pass_name="incremental",
+            collect_schema_diagnostics=not bool(full_pass["price_rows"]),
+        )
+
+        data = _merge_source_passes(
+            scraper_name,
+            file_limit,
+            [full_pass, incremental_pass],
+        )
+        data["scrape_file_limit"] = {
+            "full": full_limit,
+            "incremental": incremental_limit,
+        }
+        data["shufersal_bootstrap"] = {
+            "full_files_seen": full_pass["files_seen"],
+            "full_baby_rows": len(full_pass["price_rows"]),
+            "incremental_files_seen": incremental_pass["files_seen"],
+            "incremental_baby_rows": len(incremental_pass["price_rows"]),
+            "full_snapshot_found": full_pass["files_seen"] > 0,
+        }
+        return data
+
     if scraper_name == "RAMI_LEVY":
         base_limit = file_limit
         if file_limit is not None:
@@ -570,6 +624,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "price_schema_diagnostics": data.get("price_schema_diagnostics", [])[:3],
                         "source_passes": data.get("source_passes", []),
                         "yohananof_bootstrap": data.get("yohananof_bootstrap"),
+                        "shufersal_bootstrap": data.get("shufersal_bootstrap"),
                         "metadata_enrichment": enrichment_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
