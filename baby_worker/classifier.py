@@ -21,7 +21,8 @@ DIAPERS_RE = re.compile(r"חיתול|טיטול|\bdiapers?\b|\bnapp(?:y|ies)\b",
 DIAPER_EXCLUDE_RE = re.compile(
     r"שקיות?.{0,20}(?:חיתול|טיטול)|משחת\s*החתלה|קרם\s*החתלה|"
     r"חיתול(?:י|ים)?\s*שחייה|חיתולים?\s*ללילה|"
-    r"diaper\s*(?:bags?|cream|rash)|swim\s*(?:diaper|nappy)|overnight\s*diaper",
+    r"diaper\s*(?:bags?|cream|rash)|swim\s*(?:diaper|nappy)|overnight\s*diaper|"
+    r"מבוגרים|למבוגרים|adult|incontinence|continence",
     re.I,
 )
 
@@ -34,7 +35,7 @@ FORMULA_GENERIC_RE = re.compile(
 )
 FORMULA_BRAND_RE = re.compile(r"מטרנה|סימילאק|נוטרילון|materna|similac|nutrilon", re.I)
 FORMULA_EXCLUDE_RE = re.compile(
-    r"דייס|מחית|ארוחת|פדיאשור|pediasure|"
+    r"דייס|מחית|מחיות|צידנית|ארוחת|פדיאשור|pediasure|baby\s*food|"
     r"מטרנה\s+אורגני\s+תפוח|"
     r"רוטב|סויה|שמפו|מרכך|קרם|לחות|מסכה|שיער|"
     r"porridge|puree|shampoo|conditioner|hair|sauce",
