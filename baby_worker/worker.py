@@ -229,59 +229,94 @@ def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
 SP_BASE_URL = "https://prices.super-pharm.co.il/"
 SP_DOWNLOAD_BUCKET = "sp_transparency_output_prod_v2"
 SP_CHAIN_EAN = "7290172900007"
-SP_FILE_RE = re.compile(
-    r"^(?P<kind>PriceFull|Price|Stores)"
+
+# Match filenames anywhere in the returned HTML/text. This is deliberately
+# independent of <a href=...>, because the GitHub runner may receive markup
+# where the filename is visible but the download URL is not represented as a
+# simple href.
+SP_FILENAME_RE = re.compile(
+    r"(?P<filename>"
+    r"(?P<kind>PriceFull|Price|Stores)"
     r"7290172900007-000-"
     r"(?:(?P<branch>\d+)-)?"
     r"(?P<timestamp>\d{8}-\d{6}|\d{8}-\d+)"
-    r"\.gz$",
+    r"\.gz"
+    r")",
     re.I,
 )
 
 
-def _sp_links_from_html(page_html: str) -> list[dict[str, str]]:
-    """Extract official Super-Pharm transparency download links."""
-    out: list[dict[str, str]] = []
-    seen: set[str] = set()
-    href_pattern = r'href\s*=\s*["\']([^"\']+)["\']'
+def _sp_kind(kind_raw: str) -> str:
+    return {
+        "pricefull": "price_full",
+        "price": "price",
+        "stores": "stores",
+    }[kind_raw.lower()]
 
-    for href in re.findall(href_pattern, page_html or "", re.I):
+
+def _sp_direct_download_url(file_name: str) -> str:
+    # This endpoint shape is exposed by the official site.
+    return (
+        f"{SP_BASE_URL}Download/{file_name}"
+        f"?bucketName={SP_DOWNLOAD_BUCKET}"
+    )
+
+
+def _sp_candidates_from_html(page_html: str) -> list[dict[str, str]]:
+    """Extract SP files from hrefs AND from raw page text.
+
+    Href parsing remains useful when available. Filename scanning is the robust
+    fallback and is the primary v0.20 change.
+    """
+    text = html.unescape(page_html or "")
+    out_by_filename: dict[str, dict[str, str]] = {}
+
+    # 1) Parse filenames anywhere in page text.
+    for m in SP_FILENAME_RE.finditer(text):
+        file_name = m.group("filename")
+        out_by_filename[file_name] = {
+            "url": _sp_direct_download_url(file_name),
+            "file_name": file_name,
+            "kind": _sp_kind(m.group("kind")),
+            "branch_code": m.group("branch") or "",
+            "timestamp": m.group("timestamp"),
+            "discovery": "text",
+        }
+
+    # 2) If the actual href is present, prefer it. This preserves any official
+    # query string/signature shape while still keeping the text fallback.
+    href_pattern = r'href\s*=\s*["\']([^"\']+)["\']'
+    for href in re.findall(href_pattern, text, re.I):
         href = html.unescape(href)
-        parsed = urlparse(href)
-        file_name = unquote(parsed.path).rsplit("/", 1)[-1]
-        m = SP_FILE_RE.match(file_name)
+        decoded_path = unquote(urlparse(href).path)
+        file_name = decoded_path.rsplit("/", 1)[-1]
+        m = SP_FILENAME_RE.fullmatch(file_name)
         if not m:
             continue
 
-        # Official pages expose /Download/<filename>?bucketName=...
         url = urljoin(SP_BASE_URL, href)
         if "bucketName=" not in url:
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}bucketName={SP_DOWNLOAD_BUCKET}"
 
-        if url in seen:
-            continue
-        seen.add(url)
-
-        kind_raw = m.group("kind").lower()
-        kind = {
-            "pricefull": "price_full",
-            "price": "price",
-            "stores": "stores",
-        }[kind_raw]
-
-        out.append({
+        out_by_filename[file_name] = {
             "url": url,
             "file_name": file_name,
-            "kind": kind,
+            "kind": _sp_kind(m.group("kind")),
             "branch_code": m.group("branch") or "",
             "timestamp": m.group("timestamp"),
-        })
+            "discovery": "href",
+        }
 
-    return out
+    return list(out_by_filename.values())
+
+
+# Backwards-compatible name used by the v0.19 offline tests / helpers.
+_sp_links_from_html = _sp_candidates_from_html
 
 
 def _sp_newest_per_branch(
@@ -295,7 +330,10 @@ def _sp_newest_per_branch(
             latest[branch] = item
     return sorted(
         latest.values(),
-        key=lambda x: (x.get("branch_code") or "", x["timestamp"]),
+        key=lambda x: (
+            x.get("branch_code") or "",
+            x["timestamp"],
+        ),
     )
 
 
@@ -316,8 +354,6 @@ def _sp_get(
                 timeout=timeout,
                 allow_redirects=True,
             )
-            # 247 was observed from the old HTTP scraper path. Treat any
-            # non-2xx response as a retryable source failure here.
             if 200 <= response.status_code < 300:
                 return response
             last_exc = RuntimeError(
@@ -334,6 +370,53 @@ def _sp_get(
     raise last_exc
 
 
+def _sp_page_diagnostic(
+    response: requests.Response,
+    page_html: str,
+    *,
+    filtered: bool,
+    requested_kind: str,
+    page: int,
+) -> dict[str, Any]:
+    """Small, safe diagnostic describing what the runner actually received."""
+    text = page_html or ""
+    candidates = _sp_candidates_from_html(text)
+    hrefs = re.findall(
+        r'href\s*=\s*["\']([^"\']+)["\']',
+        text,
+        re.I,
+    )
+    title_match = re.search(
+        r"<title[^>]*>(.*?)</title>",
+        text,
+        re.I | re.S,
+    )
+    title = ""
+    if title_match:
+        title = re.sub(r"\s+", " ", html.unescape(title_match.group(1))).strip()
+
+    # Do not persist the full HTML. Keep a short whitespace-normalized prefix
+    # and filenames only, enough to distinguish a normal index from a block/
+    # challenge page.
+    prefix = re.sub(r"\s+", " ", html.unescape(text[:1200])).strip()
+
+    return {
+        "filtered": filtered,
+        "requested_kind": requested_kind,
+        "page": page,
+        "status_code": getattr(response, "status_code", None),
+        "final_url": getattr(response, "url", None),
+        "html_length": len(text),
+        "title": title[:200],
+        "href_count": len(hrefs),
+        "filenames_found": len(candidates),
+        "filename_samples": [
+            x["file_name"] for x in candidates[:8]
+        ],
+        "html_prefix": prefix[:700],
+    }
+
+
 def _scan_sp_index(
     session: requests.Session,
     *,
@@ -341,10 +424,13 @@ def _scan_sp_index(
     target_count: int,
     max_pages: int,
 ) -> tuple[list[dict[str, str]], dict[str, Any]]:
-    """Scan official HTTPS index.
+    """Scan the official index with robust filename discovery.
 
-    First tries the site's `type` query parameter. If the deployment ignores
-    it, the same scan still works because filenames are filtered locally.
+    Strategy:
+      A) filtered query (`type=PriceFull`, etc.) with `date=` included,
+      B) broad-index fallback only when necessary.
+
+    We search filenames in the entire HTML, not merely href attributes.
     """
     type_value = {
         "price_full": "PriceFull",
@@ -355,42 +441,88 @@ def _scan_sp_index(
     found: list[dict[str, str]] = []
     pages_scanned = 0
     errors: list[str] = []
-    seen_urls: set[str] = set()
+    diagnostics: list[dict[str, Any]] = []
+    seen_files: set[str] = set()
 
-    # Two passes:
-    # 1) ask site to filter by type
-    # 2) broad index fallback, only when target not yet satisfied
     for filtered in (True, False):
         if len(_sp_newest_per_branch(found)) >= target_count:
             break
 
+        consecutive_empty = 0
+
         for page in range(1, max_pages + 1):
             try:
-                params: dict[str, Any] = {"page": page}
+                params: dict[str, Any] = {
+                    "date": "",
+                    "page": page,
+                }
                 if filtered:
                     params["type"] = type_value
+                else:
+                    params["type"] = ""
 
-                response = _sp_get(session, SP_BASE_URL, params=params)
+                response = _sp_get(
+                    session,
+                    SP_BASE_URL,
+                    params=params,
+                )
+                page_html = response.text or ""
                 pages_scanned += 1
-                links = _sp_links_from_html(response.text)
 
-                matching = [x for x in links if x["kind"] == wanted_kind]
+                candidates = _sp_candidates_from_html(page_html)
+                matching = [
+                    x for x in candidates
+                    if x["kind"] == wanted_kind
+                ]
+
+                if len(diagnostics) < 6:
+                    diagnostics.append(
+                        _sp_page_diagnostic(
+                            response,
+                            page_html,
+                            filtered=filtered,
+                            requested_kind=wanted_kind,
+                            page=page,
+                        )
+                    )
+
+                added = 0
                 for item in matching:
-                    if item["url"] not in seen_urls:
-                        seen_urls.add(item["url"])
-                        found.append(item)
+                    if item["file_name"] in seen_files:
+                        continue
+                    seen_files.add(item["file_name"])
+                    found.append(item)
+                    added += 1
 
-                if len(_sp_newest_per_branch(found)) >= target_count:
+                newest = _sp_newest_per_branch(found)
+                if len(newest) >= target_count:
                     break
 
-                # A truly empty page is a useful end signal.
-                if not links and page > 5:
+                # Stop a dead scan quickly, but only after we have enough
+                # evidence that the response contains no filenames at all.
+                if not candidates:
+                    consecutive_empty += 1
+                else:
+                    consecutive_empty = 0
+
+                if consecutive_empty >= 5:
+                    break
+
+                # If filtered mode is clearly returning files of other types
+                # but never the requested type, don't burn the whole page
+                # budget. Fall back to the broad scan.
+                if (
+                    filtered
+                    and page >= 12
+                    and not newest
+                    and candidates
+                ):
                     break
 
             except Exception as exc:
                 errors.append(
-                    f"{'filtered' if filtered else 'broad'} page {page}: "
-                    f"{type(exc).__name__}: {exc}"
+                    f"{'filtered' if filtered else 'broad'} "
+                    f"page {page}: {type(exc).__name__}: {exc}"
                 )
                 if len(errors) >= 8:
                     break
@@ -403,7 +535,9 @@ def _scan_sp_index(
         "wanted_kind": wanted_kind,
         "pages_scanned": pages_scanned,
         "links_found": len(newest),
+        "files_discovered_total": len(found),
         "errors": errors[:8],
+        "diagnostics": diagnostics,
     }
 
 
@@ -435,7 +569,11 @@ def _download_sp_pass(
     file_type: str,
     limit: int,
 ) -> dict[str, Any]:
-    result = _empty_sp_pass(pass_name, file_type, limit)
+    result = _empty_sp_pass(
+        pass_name,
+        file_type,
+        limit,
+    )
 
     for item in links[:limit]:
         try:
@@ -446,6 +584,7 @@ def _download_sp_pass(
                 attempts=3,
             )
             payload = response.content
+
             if payload[:2] == b"\x1f\x8b":
                 payload = gzip.decompress(payload)
 
@@ -453,33 +592,51 @@ def _download_sp_pass(
 
             if item["kind"] == "stores":
                 parsed_stores = parse_stores(
-                    payload, "SUPER_PHARM", xml_name
+                    payload,
+                    "SUPER_PHARM",
+                    xml_name,
                 )
                 result["store_rows"].extend(parsed_stores)
             else:
                 parsed = parse_price_rows(
-                    payload, "SUPER_PHARM", xml_name
+                    payload,
+                    "SUPER_PHARM",
+                    xml_name,
                 )
                 result["price_rows"].extend(parsed)
 
                 if (
                     not parsed
-                    and len(result["price_schema_diagnostics"]) < 3
+                    and len(
+                        result["price_schema_diagnostics"]
+                    ) < 3
                 ):
-                    result["price_schema_diagnostics"].append(
-                        price_file_diagnostics(payload, xml_name)
+                    result[
+                        "price_schema_diagnostics"
+                    ].append(
+                        price_file_diagnostics(
+                            payload,
+                            xml_name,
+                        )
                     )
 
             result["files_seen"] += 1
             result["kind_counts"][item["kind"]] = (
-                result["kind_counts"].get(item["kind"], 0) + 1
+                result["kind_counts"].get(
+                    item["kind"],
+                    0,
+                ) + 1
             )
+
             if len(result["sample_files"]) < 12:
-                result["sample_files"].append(xml_name)
+                result["sample_files"].append(
+                    xml_name
+                )
 
         except Exception as exc:
             result["errors"].append(
-                f'{item["file_name"]}: {type(exc).__name__}: {exc}'
+                f'{item["file_name"]}: '
+                f'{type(exc).__name__}: {exc}'
             )
 
     print(
@@ -497,26 +654,29 @@ def _collect_superpharm_official(
     incremental_limit: int,
     max_pages: int,
     session: requests.Session | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Official HTTPS bootstrap for Super-Pharm.
-
-    Avoids the package's legacy HTTP path and uses the retailer's own
-    PriceTransparency.WS index + /Download endpoint.
-    """
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, Any],
+]:
+    """Official HTTPS bootstrap for Super-Pharm."""
     owns_session = session is None
     session = session or requests.Session()
 
     session.headers.update({
         "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
             "Chrome/151.0 Safari/537.36"
         ),
         "Accept": (
-            "text/html,application/xhtml+xml,application/xml;q=0.9,"
-            "*/*;q=0.8"
+            "text/html,application/xhtml+xml,"
+            "application/xml;q=0.9,*/*;q=0.8"
         ),
-        "Accept-Language": "he-IL,he;q=0.9,en;q=0.7",
+        "Accept-Language": (
+            "he-IL,he;q=0.9,en;q=0.7"
+        ),
         "Referer": SP_BASE_URL,
         "Connection": "keep-alive",
     })
@@ -568,25 +728,47 @@ def _collect_superpharm_official(
             + price_scan["errors"]
             + store_scan["errors"]
         )
-        stores_pass["errors"] = scan_errors + stores_pass["errors"]
+        stores_pass["errors"] = (
+            scan_errors
+            + stores_pass["errors"]
+        )
 
         stats = {
             "source": SP_BASE_URL,
             "https_direct": True,
+            "filename_scan": True,
             "full_scan": full_scan,
             "incremental_scan": price_scan,
             "stores_scan": store_scan,
-            "full_files_seen": full_pass["files_seen"],
-            "full_baby_rows": len(full_pass["price_rows"]),
-            "incremental_files_seen": incremental_pass["files_seen"],
+            "full_files_seen": full_pass[
+                "files_seen"
+            ],
+            "full_baby_rows": len(
+                full_pass["price_rows"]
+            ),
+            "incremental_files_seen": (
+                incremental_pass["files_seen"]
+            ),
             "incremental_baby_rows": len(
                 incremental_pass["price_rows"]
             ),
-            "stores_files_seen": stores_pass["files_seen"],
-            "stores_rows": len(stores_pass["store_rows"]),
-            "full_snapshot_found": full_pass["files_seen"] > 0,
+            "stores_files_seen": stores_pass[
+                "files_seen"
+            ],
+            "stores_rows": len(
+                stores_pass["store_rows"]
+            ),
+            "full_snapshot_found": (
+                full_pass["files_seen"] > 0
+            ),
         }
-        return [stores_pass, full_pass, incremental_pass], stats
+
+        return [
+            stores_pass,
+            full_pass,
+            incremental_pass,
+        ], stats
+
     finally:
         if owns_session:
             session.close()
@@ -705,7 +887,7 @@ def _collect_be_official(
     owns_session = session is None
     session = session or requests.Session()
     session.headers.update({
-        "User-Agent": "baby-price-worker/0.17 (+price-transparency)",
+        "User-Agent": "baby-price-worker/0.20 (+price-transparency)",
         "Accept": "text/html,application/xhtml+xml,*/*",
     })
 
