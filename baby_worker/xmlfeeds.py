@@ -11,14 +11,15 @@ from .classifier import classify_need, infer_brand, parse_dimension, parse_packa
 CODE_KEYS = ("ItemCode", "Barcode", "BarCode", "ProductCode", "Code")
 NAME_KEYS = ("ItemName", "ProductName", "Name")
 DESCRIPTION_KEYS = (
-    "ManufacturerItemDescription", "ItemDescription", "ProductDescription",
-    "Description", "LongDescription", "ItemLongName"
+    "ManufacturerItemDescription", "ManufactureItemDescription",
+    "ItemDescription", "ProductDescription", "Description",
+    "LongDescription", "ItemLongName"
 )
 PRICE_KEYS = ("ItemPrice", "Price", "RegularPrice")
-MANUFACTURER_KEYS = ("ManufacturerName", "Manufacturer", "BrandName", "Brand")
+MANUFACTURER_KEYS = ("ManufacturerName", "ManufactureName", "Manufacturer", "BrandName", "Brand")
 QTY_KEYS = (
     "QtyInPackage", "QuantityInPackage", "PackageQuantity", "PackageQty",
-    "UnitsInPackage", "NumberOfUnits", "NoOfUnits", "PackQty", "Quantity"
+    "UnitsInPackage", "NumberOfUnits", "NoOfUnits", "PackQty"
 )
 UNIT_QTY_KEYS = ("UnitQty", "UnitQuantity", "UnitOfMeasure", "UnitOfMeasurePrice")
 STORE_KEYS = ("StoreId", "StoreID", "StoreCode")
@@ -98,6 +99,92 @@ def metadata_blob(d: dict[str, str], name: str, manufacturer: str | None) -> str
             parts.append(value)
 
     return " ".join(parts)
+
+
+UNKNOWN_VALUES = {"לא ידוע", "unknown", "n/a", "na", "none", "null", "-"}
+
+
+def meaningful(v: str | None) -> str | None:
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s or s.lower() in UNKNOWN_VALUES:
+        return None
+    return s
+
+
+def descriptive_blob(d: dict[str, str], name: str, manufacturer: str | None) -> str:
+    """Human product text only, excluding pricing/unit-of-measure metadata."""
+    parts: list[str] = [name]
+    if manufacturer:
+        parts.append(manufacturer)
+    for key in DESCRIPTION_KEYS:
+        value = meaningful(first(d, (key,)))
+        if value and value not in parts:
+            parts.append(value)
+    return " ".join(parts)
+
+
+def _unit_count_from_text(text: str) -> float | None:
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:יחידות|יחידה|יח['׳]?|units?|pcs?)\b", text or "", re.I)
+    if not m:
+        return None
+    value = float(m.group(1))
+    return value if value > 1 else None
+
+
+def extract_package_quantity(
+    d: dict[str, str], need_key: str, name: str, manufacturer: str | None
+) -> tuple[float | None, str | None]:
+    """Interpret retailer quantity fields according to the baby-product category.
+
+    Israeli transparency feeds often use Quantity differently by product type:
+    formula: package weight (e.g. 700/800/850 grams)
+    diapers: number of diapers when available
+    wipes: total wipes, or number of packs for multipacks
+    """
+    desc_text = descriptive_blob(d, name, manufacturer)
+    explicit_pack = meaningful(first(d, QTY_KEYS))
+    raw_quantity = safe_float(first(d, ("Quantity",)))
+    unit_qty = meaningful(first(d, ("UnitQty", "UnitQuantity")))
+    unit_measure = meaningful(first(d, ("UnitOfMeasure",)))
+
+    # First honor explicit package fields when they contain a meaningful number.
+    if explicit_pack:
+        qty, unit = parse_package_quantity(desc_text, need_key, explicit_pack, unit_qty)
+        if qty is not None:
+            return qty, unit
+
+    if need_key == "formula":
+        unit_text = f"{unit_qty or ''} {unit_measure or ''}"
+        grams_signal = bool(re.search(r"גרם|gr\b|grams?\b|\bg\b", unit_text, re.I))
+        if raw_quantity is not None and raw_quantity > 1 and grams_signal:
+            return raw_quantity, "גרם"
+        # Do NOT feed UnitOfMeasure='100 גרם' into this fallback, because that
+        # is a comparison unit, not the package weight.
+        return parse_package_quantity(desc_text, need_key, None, unit_qty)
+
+    if need_key == "diapers":
+        units_signal = bool(re.search(r"יחיד|units?|pcs?", f"{unit_qty or ''} {unit_measure or ''}", re.I))
+        if raw_quantity is not None and raw_quantity > 1 and units_signal:
+            return raw_quantity, "יחידות"
+        return parse_package_quantity(desc_text, need_key, None, unit_qty)
+
+    if need_key == "wipes":
+        per_pack = _unit_count_from_text(desc_text)
+        if raw_quantity is not None and raw_quantity > 1:
+            # Small Quantity values are commonly the number of packs in a
+            # multipack. Example: Quantity=4 + description='75 יחידות' => 300.
+            if raw_quantity <= 12 and per_pack is not None and per_pack >= 10:
+                return raw_quantity * per_pack, "יחידות"
+            # Larger values are normally the total wipe count (e.g. 224).
+            if raw_quantity >= 10:
+                return raw_quantity, "יחידות"
+        if per_pack is not None:
+            return per_pack, "יחידות"
+        return parse_package_quantity(desc_text, need_key, None, unit_qty)
+
+    return parse_package_quantity(desc_text, need_key, explicit_pack, unit_qty)
 
 
 def safe_float(v: Any) -> float | None:
@@ -184,12 +271,12 @@ def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[d
             continue
 
         manufacturer = first(d, MANUFACTURER_KEYS)
-        qty_in_package = first(d, QTY_KEYS)
-        unit_qty = first(d, UNIT_QTY_KEYS)
+        qty_in_package = meaningful(first(d, QTY_KEYS))
+        unit_qty = meaningful(first(d, ("UnitQty", "UnitQuantity")))
         meta_text = metadata_blob(d, name, manufacturer)
         dimension_type, dimension_value = parse_dimension(meta_text, need_key)
-        package_quantity, package_unit = parse_package_quantity(
-            meta_text, need_key, qty_in_package, unit_qty
+        package_quantity, package_unit = extract_package_quantity(
+            d, need_key, name, manufacturer
         )
         rows.append({
             "source_name": source_name,

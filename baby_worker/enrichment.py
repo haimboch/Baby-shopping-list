@@ -114,6 +114,18 @@ class MetadataEnricher:
         """Extract package size from documented or extra product metadata."""
         unit_qty = str(product.get("unitQty") or product.get("unit_qty") or "").strip()
 
+        # Cheapersal's unitQty is numeric for many baby products, e.g. 46 for
+        # a diaper pack. Interpret a bare numeric value by category.
+        try:
+            numeric_unit_qty = float(unit_qty.replace(",", "."))
+        except ValueError:
+            numeric_unit_qty = None
+        if numeric_unit_qty is not None and numeric_unit_qty > 1:
+            if need_key == "formula":
+                return numeric_unit_qty, "גרם"
+            if need_key in {"diapers", "wipes"}:
+                return numeric_unit_qty, "יחידות"
+
         count_keys = (
             "qtyInPackage", "quantityInPackage", "packageQuantity",
             "packageQty", "unitsInPackage", "numberOfUnits", "packQty",
