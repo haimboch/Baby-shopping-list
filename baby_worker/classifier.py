@@ -35,6 +35,7 @@ FORMULA_GENERIC_RE = re.compile(
 FORMULA_BRAND_RE = re.compile(r"מטרנה|סימילאק|נוטרילון|materna|similac|nutrilon", re.I)
 FORMULA_EXCLUDE_RE = re.compile(
     r"דייס|מחית|ארוחת|פדיאשור|pediasure|"
+    r"מטרנה\s+אורגני\s+תפוח|"
     r"רוטב|סויה|שמפו|מרכך|קרם|לחות|מסכה|שיער|"
     r"porridge|puree|shampoo|conditioner|hair|sauce",
     re.I,
