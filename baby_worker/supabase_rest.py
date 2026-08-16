@@ -44,6 +44,12 @@ class SupabaseREST:
             )
             self._check(r)
 
+    def select(self, table: str, params: dict[str, str]) -> list[dict[str, Any]]:
+        r = requests.get(f"{self.base}/{table}", params=params, headers=self.headers, timeout=45)
+        self._check(r)
+        data = r.json()
+        return data if isinstance(data, list) else []
+
     def patch(self, table: str, filters: dict[str, str], row: dict[str, Any]):
         params = {k: f"eq.{v}" for k, v in filters.items()}
         h = {**self.headers, "Prefer": "return=minimal"}

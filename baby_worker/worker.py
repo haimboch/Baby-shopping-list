@@ -11,6 +11,7 @@ from typing import Any
 
 from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_stores
 from .supabase_rest import SupabaseREST
+from .enrichment import MetadataEnricher
 
 SCRAPER_TO_DB = {
     "SUPER_PHARM": "super_pharm",
@@ -204,7 +205,7 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
         "sample_files": sample_files,
     }
 
-async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None):
+async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None, enricher: MetadataEnricher | None = None):
     source_db_name = SCRAPER_TO_DB[scraper_name]
     run_id = None
     if db and not dry_run:
@@ -230,6 +231,14 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         }
         duplicate_price_rows = len(prices) - len(price_map)
         prices = list(price_map.values())
+
+        # One-time metadata enrichment for previously unknown barcodes.
+        # Prices still come from the retailer transparency files. Cheapersal is
+        # used only to fill persistent catalog metadata such as full name,
+        # brand, size/stage and package quantity.
+        enrichment_stats = {"attempted": 0, "catalog_saved": 0, "skipped": 0, "errors": []}
+        if enricher and db and not dry_run and prices:
+            enrichment_stats = enricher.enrich_missing_catalog(prices)
 
         branches = [to_db_branch(x) for x in data["store_rows"]]
         branch_map = {
@@ -279,6 +288,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "branches_saved": len(branches),
                         "promo_rows_seen": len(data["promo_rows"]),
                         "duplicate_price_rows_collapsed": duplicate_price_rows,
+                        "metadata_enrichment": enrichment_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
                         "parse_errors": data["errors"][:25],
@@ -320,8 +330,15 @@ async def async_main(args):
             scraper_names.append(scr)
 
     db = None if args.dry_run else SupabaseREST()
+    enricher = None
+    if db and not args.dry_run:
+        enricher = MetadataEnricher(
+            db=db,
+            api_key=os.environ.get("CHEAPERSAL_API_KEY", ""),
+            limit=int(os.environ.get("ENRICHMENT_LIMIT", "8")),
+        )
     for scraper_name in scraper_names:
-        await run_chain(scraper_name, db, args.dry_run, args.file_limit)
+        await run_chain(scraper_name, db, args.dry_run, args.file_limit, enricher)
 
 def main():
     parser = argparse.ArgumentParser(description="Baby price-transparency worker")
