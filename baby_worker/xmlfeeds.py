@@ -42,7 +42,16 @@ def parse_root(content: bytes) -> ET.Element:
     return ET.fromstring(data)
 
 def child_map(el: ET.Element) -> dict[str, str]:
+    """Direct product/header fields, including XML attributes.
+
+    Some transparency publishers serialize simple fields as attributes instead
+    of child elements. Existing element-based feeds continue to behave exactly
+    as before.
+    """
     out: dict[str, str] = {}
+    for k, v in el.attrib.items():
+        if v not in (None, ""):
+            out[local(k)] = str(v).strip()
     for c in list(el):
         if len(list(c)) == 0:
             out[local(c.tag)] = (c.text or "").strip()
@@ -64,9 +73,169 @@ def first(d: dict[str, str], keys: Iterable[str]) -> str | None:
 def root_first(root: ET.Element, keys: Iterable[str]) -> str | None:
     wanted = {k.lower() for k in keys}
     for el in root.iter():
-        if local(el.tag).lower() in wanted and el.text and el.text.strip():
-            return el.text.strip()
+        for ak, av in el.attrib.items():
+            if local(ak).lower() in wanted and str(av).strip():
+                return str(av).strip()
+        if local(el.tag).lower() in wanted:
+            value = "".join(el.itertext()).strip()
+            if value:
+                return value
     return None
+
+RECOGNIZED_PRODUCT_KEYS = tuple(dict.fromkeys(
+    CODE_KEYS + NAME_KEYS + DESCRIPTION_KEYS + PRICE_KEYS + MANUFACTURER_KEYS +
+    QTY_KEYS + UNIT_QTY_KEYS + STORE_KEYS + SUBCHAIN_KEYS + UPDATED_KEYS +
+    ("Quantity", "UnitQty", "UnitQuantity", "UnitOfMeasure",
+     "UnitOfMeasurePrice", "ManufactureName", "ManufacturerName")
+))
+
+
+def _recognized_key(name: str) -> str | None:
+    low = name.lower()
+    for key in RECOGNIZED_PRODUCT_KEYS:
+        if key.lower() == low:
+            return key
+    return None
+
+
+def minimal_product_maps(root: ET.Element) -> list[dict[str, str]]:
+    """Find the smallest XML subtrees containing code + name + price.
+
+    This is a fallback for publishers that wrap fields in extra XML levels or
+    store fields as attributes. The smallest qualifying subtree is selected so
+    the document root cannot accidentally become one giant product row.
+    """
+    candidates: list[dict[str, str]] = []
+
+    def visit(el: ET.Element) -> tuple[dict[str, str], bool]:
+        merged: dict[str, str] = {}
+
+        for ak, av in el.attrib.items():
+            key = _recognized_key(local(ak))
+            value = str(av).strip()
+            if key and value and key not in merged:
+                merged[key] = value
+
+        own_key = _recognized_key(local(el.tag))
+        if own_key:
+            value = "".join(el.itertext()).strip()
+            if value:
+                merged.setdefault(own_key, value)
+
+        descendant_has_candidate = False
+        for child in list(el):
+            child_map_, child_has_candidate = visit(child)
+            if child_has_candidate:
+                descendant_has_candidate = True
+            for k, v in child_map_.items():
+                if v and k not in merged:
+                    merged[k] = v
+
+        qualifies = bool(
+            first(merged, CODE_KEYS)
+            and first(merged, NAME_KEYS)
+            and safe_float(first(merged, PRICE_KEYS)) is not None
+        )
+
+        is_minimal_candidate = qualifies and not descendant_has_candidate
+        if is_minimal_candidate:
+            candidates.append(dict(merged))
+
+        return merged, descendant_has_candidate or is_minimal_candidate
+
+    visit(root)
+    return candidates
+
+
+def price_file_diagnostics(content: bytes, file_name: str) -> dict[str, Any]:
+    """Compact diagnostics that do not depend on baby-product classification."""
+    root = parse_root(content)
+    tag_counts: dict[str, int] = {}
+    for el in root.iter():
+        t = local(el.tag)
+        tag_counts[t] = tag_counts.get(t, 0) + 1
+
+    direct_product_shapes = 0
+    sample_names: list[str] = []
+    for el in root.iter():
+        d = child_map(el)
+        code = first(d, CODE_KEYS)
+        name = first(d, NAME_KEYS)
+        price = safe_float(first(d, PRICE_KEYS))
+        if code and name and price is not None:
+            direct_product_shapes += 1
+            if len(sample_names) < 5:
+                sample_names.append(str(name)[:120])
+
+    fallback_maps = minimal_product_maps(root) if direct_product_shapes == 0 else []
+    if not sample_names:
+        for d in fallback_maps[:5]:
+            name = first(d, NAME_KEYS)
+            if name:
+                sample_names.append(str(name)[:120])
+
+    common_tags = sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:18]
+    return {
+        "file_name": file_name,
+        "content_bytes": len(clean_bytes(content)),
+        "root_tag": local(root.tag),
+        "total_elements": sum(tag_counts.values()),
+        "direct_product_shapes": direct_product_shapes,
+        "fallback_product_shapes": len(fallback_maps),
+        "sample_names": sample_names,
+        "common_tags": [{"tag": k, "count": v} for k, v in common_tags],
+    }
+
+
+def _parse_product_map(
+    d: dict[str, str],
+    source_name: str,
+    file_name: str,
+    branch_code: str,
+    subchain: str | None,
+    updated: str | None,
+) -> dict[str, Any] | None:
+    barcode = first(d, CODE_KEYS)
+    name = first(d, NAME_KEYS)
+    price = safe_float(first(d, PRICE_KEYS))
+    if not barcode or not name or price is None or price <= 0:
+        return None
+
+    need_key = classify_need(name)
+    if not need_key:
+        return None
+
+    manufacturer = first(d, MANUFACTURER_KEYS)
+    qty_in_package = meaningful(first(d, QTY_KEYS))
+    unit_qty = meaningful(first(d, ("UnitQty", "UnitQuantity")))
+    meta_text = metadata_blob(d, name, manufacturer)
+    dimension_type, dimension_value = parse_dimension(meta_text, need_key)
+    package_quantity, package_unit = extract_package_quantity(
+        d, need_key, name, manufacturer
+    )
+    return {
+        "source_name": source_name,
+        "subchain_id": subchain,
+        "branch_code": str(branch_code),
+        "barcode": str(barcode).strip(),
+        "need_key": need_key,
+        "dimension_type": dimension_type,
+        "dimension_value": dimension_value,
+        "brand": infer_brand(meta_text, manufacturer),
+        "product_name": name,
+        "package_quantity": package_quantity,
+        "package_unit": package_unit,
+        "regular_price": price,
+        "source_updated_at": updated,
+        "raw_source": {
+            "file_name": file_name,
+            "manufacturer": manufacturer,
+            "qty_in_package": qty_in_package,
+            "unit_qty": unit_qty,
+            "metadata_candidates": metadata_candidates(d),
+        },
+    }
+
 
 def metadata_candidates(d: dict[str, str]) -> dict[str, str]:
     """Keep useful product metadata without storing the entire retailer row."""
@@ -276,48 +445,33 @@ def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[d
     updated = root_first(root, UPDATED_KEYS) or timestamp_from_filename(file_name)
 
     rows: list[dict[str, Any]] = []
+    direct_product_shapes = 0
+
+    # Fast path used by Rami Levy and standard transparency XML.
     for el in root.iter():
         d = child_map(el)
         barcode = first(d, CODE_KEYS)
         name = first(d, NAME_KEYS)
         price = safe_float(first(d, PRICE_KEYS))
-        if not barcode or not name or price is None or price <= 0:
-            continue
+        if barcode and name and price is not None:
+            direct_product_shapes += 1
 
-        need_key = classify_need(name)
-        if not need_key:
-            continue
-
-        manufacturer = first(d, MANUFACTURER_KEYS)
-        qty_in_package = meaningful(first(d, QTY_KEYS))
-        unit_qty = meaningful(first(d, ("UnitQty", "UnitQuantity")))
-        meta_text = metadata_blob(d, name, manufacturer)
-        dimension_type, dimension_value = parse_dimension(meta_text, need_key)
-        package_quantity, package_unit = extract_package_quantity(
-            d, need_key, name, manufacturer
+        parsed = _parse_product_map(
+            d, source_name, file_name, str(branch_code), subchain, updated
         )
-        rows.append({
-            "source_name": source_name,
-            "subchain_id": subchain,
-            "branch_code": str(branch_code),
-            "barcode": str(barcode).strip(),
-            "need_key": need_key,
-            "dimension_type": dimension_type,
-            "dimension_value": dimension_value,
-            "brand": infer_brand(meta_text, manufacturer),
-            "product_name": name,
-            "package_quantity": package_quantity,
-            "package_unit": package_unit,
-            "regular_price": price,
-            "source_updated_at": updated,
-            "raw_source": {
-                "file_name": file_name,
-                "manufacturer": manufacturer,
-                "qty_in_package": qty_in_package,
-                "unit_qty": unit_qty,
-                "metadata_candidates": metadata_candidates(d),
-            },
-        })
+        if parsed:
+            rows.append(parsed)
+
+    # Only when the document has no standard product-shaped nodes do we invoke
+    # the nested/attribute fallback. This leaves proven Rami parsing untouched.
+    if direct_product_shapes == 0:
+        for d in minimal_product_maps(root):
+            parsed = _parse_product_map(
+                d, source_name, file_name, str(branch_code), subchain, updated
+            )
+            if parsed:
+                rows.append(parsed)
+
     return dedupe(rows, ("source_name", "branch_code", "barcode"))
 
 def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[dict[str, Any]]:

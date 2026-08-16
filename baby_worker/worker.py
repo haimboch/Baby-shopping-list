@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_stores, timestamp_from_filename
+from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_stores, timestamp_from_filename, price_file_diagnostics
 from .supabase_rest import SupabaseREST
 from .enrichment import MetadataEnricher
 
@@ -244,9 +244,13 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
 
     scrape_limit = file_limit
     if scraper_name == "RAMI_LEVY" and file_limit is not None:
-        # A global limit of 20 can contain files from only one branch. Inspect a
-        # wider window for Rami, then keep only the newest row per branch below.
+        # A global limit of 20 can contain files from only one branch.
         min_files = int(os.environ.get("RAMI_LEVY_MIN_SOURCE_FILES", "100"))
+        scrape_limit = max(file_limit, min_files)
+    elif scraper_name == "YOHANANOF" and file_limit is not None:
+        # Yohananof PRICE files are incremental snapshots. Inspect a wider
+        # window so a smoke test is not judged from a handful of change files.
+        min_files = int(os.environ.get("YOHANANOF_MIN_SOURCE_FILES", "100"))
         scrape_limit = max(file_limit, min_files)
 
     scraper.start(limit=scrape_limit, when_date=_now())
@@ -258,6 +262,7 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
     errors: list[str] = []
     kind_counts: dict[str, int] = defaultdict(int)
     sample_files: list[str] = []
+    price_schema_diagnostics: list[dict[str, Any]] = []
 
     try:
         for name, file_output in scraper.consume().items():
@@ -282,8 +287,19 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
                         store_rows.extend(parse_stores(content, scraper_name, file_name))
                     elif kind in ("price_full", "price"):
                         # Incremental PRICE_FILE and full PRICE_FULL_FILE use the
-                        # same item fields for the data we need.
-                        price_rows.extend(parse_price_rows(content, scraper_name, file_name))
+                        # same normalized output. Keep diagnostics independent
+                        # from baby classification so zero baby rows are not
+                        # confused with a broken XML parser.
+                        parsed_rows = parse_price_rows(content, scraper_name, file_name)
+                        price_rows.extend(parsed_rows)
+                        if (
+                            scraper_name == "YOHANANOF"
+                            and not parsed_rows
+                            and len(price_schema_diagnostics) < 3
+                        ):
+                            price_schema_diagnostics.append(
+                                price_file_diagnostics(content, file_name)
+                            )
                     elif kind in ("promo_full", "promo"):
                         promo_rows.extend(parse_promotions(content, scraper_name, file_name))
                     else:
@@ -312,6 +328,7 @@ async def collect_source(scraper_name: str, file_limit: int | None) -> dict[str,
         "sample_files": sample_files,
         "requested_file_limit": file_limit,
         "scrape_file_limit": scrape_limit,
+        "price_schema_diagnostics": price_schema_diagnostics,
     }
 
 async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None, enricher: MetadataEnricher | None = None):
@@ -395,6 +412,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "stale_rows_skipped": stale_rows_skipped,
                         "requested_file_limit": data.get("requested_file_limit"),
                         "scrape_file_limit": data.get("scrape_file_limit"),
+                        "price_schema_diagnostics": data.get("price_schema_diagnostics", [])[:3],
                         "metadata_enrichment": enrichment_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
