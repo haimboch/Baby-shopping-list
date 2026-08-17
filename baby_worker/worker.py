@@ -866,51 +866,141 @@ def _collect_superpharm_official(
             session.close()
 
 
-BE_INDEX_URL = "https://prices.shufersal.co.il/FileObject/UpdateCategory"
+
+SHUF_INDEX_URL = "https://prices.shufersal.co.il/FileObject/UpdateCategory"
 BE_SUBCHAIN = "005"
-BE_FILE_RE = re.compile(
-    r"^(?P<kind>PriceFull|Price)7290027600007-005-(?P<branch>\d+)-"
-    r"(?P<timestamp>\d{8}-\d{6})\.gz$",
+
+# Modern files include a 3-digit subchain:
+#   PriceFull7290027600007-002-163-20260817-030000.gz
+#   PriceFull7290027600007-005-684-20260817-030000.gz
+SHUF_MODERN_FILE_RE = re.compile(
+    r"^(?P<kind>PriceFull|Price)"
+    r"7290027600007-"
+    r"(?P<subchain>\d{3})-"
+    r"(?P<branch>\d+)-"
+    r"(?P<timestamp>\d{8}-\d{6})"
+    r"\.gz$",
+    re.I,
+)
+
+# Historical files may omit subchain entirely:
+#   PriceFull7290027600007-163-202603220300.gz
+SHUF_LEGACY_FILE_RE = re.compile(
+    r"^(?P<kind>PriceFull|Price)"
+    r"7290027600007-"
+    r"(?P<branch>\d+)-"
+    r"(?P<timestamp>\d{12,14})"
+    r"\.gz$",
     re.I,
 )
 
 
-def _be_links_from_html(page_html: str) -> list[dict[str, str]]:
-    """Extract official Be price links from a Shufersal transparency index page."""
-    out: list[dict[str, str]] = []
-    seen: set[str] = set()
-    href_pattern = r"href\s*=\s*[\"']([^\"']+)[\"']"
+def _match_shuf_filename(file_name: str) -> dict[str, str] | None:
+    m = SHUF_MODERN_FILE_RE.match(file_name)
+    if m:
+        return {
+            "kind": m.group("kind"),
+            "subchain_id": m.group("subchain"),
+            "branch_code": m.group("branch"),
+            "timestamp": m.group("timestamp"),
+        }
 
-    for href in re.findall(href_pattern, page_html or "", re.I):
+    m = SHUF_LEGACY_FILE_RE.match(file_name)
+    if m:
+        return {
+            "kind": m.group("kind"),
+            "subchain_id": "",
+            "branch_code": m.group("branch"),
+            "timestamp": m.group("timestamp"),
+        }
+
+    return None
+
+
+def _parse_shuf_target_links(page_html: str) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for href in re.findall(
+        r'href\s*=\s*["\']([^"\']+)["\']',
+        page_html or "",
+        re.I,
+    ):
         url = html.unescape(href)
-        path = unquote(urlparse(url).path)
-        file_name = path.rsplit("/", 1)[-1]
-        m = BE_FILE_RE.match(file_name)
-        if not m or url in seen:
+        file_name = unquote(
+            urlparse(url).path
+        ).rsplit("/", 1)[-1]
+
+        meta = _match_shuf_filename(file_name)
+        if not meta:
             continue
-        seen.add(url)
+
+        key = (url, file_name)
+        if key in seen:
+            continue
+        seen.add(key)
+
         out.append({
             "url": url,
             "file_name": file_name,
-            "kind": "price_full" if m.group("kind").lower() == "pricefull" else "price",
-            "branch_code": m.group("branch"),
-            "timestamp": m.group("timestamp"),
+            "kind": (
+                "price_full"
+                if meta["kind"].lower() == "pricefull"
+                else "price"
+            ),
+            "subchain_id": meta["subchain_id"],
+            "branch_code": meta["branch_code"],
+            "timestamp": meta["timestamp"],
         })
+
     return out
 
 
-def _newest_per_branch(items: list[dict[str, str]]) -> list[dict[str, str]]:
-    """One newest link per Be branch for one file kind."""
+def _newest_link_per_branch(
+    items: list[dict[str, str]],
+) -> list[dict[str, str]]:
     latest: dict[str, dict[str, str]] = {}
     for item in items:
         branch = item["branch_code"]
         current = latest.get(branch)
         if current is None or item["timestamp"] > current["timestamp"]:
             latest[branch] = item
-    return sorted(latest.values(), key=lambda x: (x["branch_code"], x["timestamp"]))
+
+    return sorted(
+        latest.values(),
+        key=lambda x: (
+            x["branch_code"],
+            x["timestamp"],
+        ),
+    )
 
 
-def _empty_direct_pass(pass_name: str, file_type: str, limit: int) -> dict[str, Any]:
+def _is_be_link(item: dict[str, str]) -> bool:
+    return (
+        (item.get("subchain_id") or "")
+        .lstrip("0")
+        == "5"
+    )
+
+
+def _link_matches_chain(
+    item: dict[str, str],
+    chain_id: str,
+) -> bool:
+    if chain_id == "be":
+        return _is_be_link(item)
+    if chain_id == "shufersal":
+        # 005 is Be. Other current/historical subchains belong to the
+        # Shufersal family for our comparison layer.
+        return not _is_be_link(item)
+    return False
+
+
+def _empty_target_pass(
+    pass_name: str,
+    file_type: str,
+    limit: int,
+) -> dict[str, Any]:
     return {
         "pass_name": pass_name,
         "file_types": [file_type],
@@ -923,79 +1013,412 @@ def _empty_direct_pass(pass_name: str, file_type: str, limit: int) -> dict[str, 
         "kind_counts": {},
         "sample_files": [],
         "price_schema_diagnostics": [],
+        "target_filter": {},
     }
 
 
-def _download_be_price_pass(
+def _download_target_links(
     session: requests.Session,
     links: list[dict[str, str]],
     *,
+    chain_id: str,
     pass_name: str,
     file_type: str,
-    limit: int,
-    target_codes: set[str] | None = None,
+    target_codes: set[str] | None,
+    fallback_limit: int,
 ) -> dict[str, Any]:
-    result = _empty_direct_pass(pass_name, file_type, limit)
-    newest = _newest_per_branch(links)
-    selected = ([x for x in newest if x["branch_code"] in target_codes] if target_codes else newest[:limit])
+    limit = max(
+        1,
+        len(target_codes or [])
+        if target_codes
+        else fallback_limit,
+    )
+    result = _empty_target_pass(
+        pass_name,
+        file_type,
+        limit,
+    )
+
+    newest = _newest_link_per_branch([
+        x for x in links
+        if _link_matches_chain(x, chain_id)
+    ])
+
+    selected = (
+        [
+            x for x in newest
+            if x["branch_code"] in target_codes
+        ]
+        if target_codes
+        else newest[:fallback_limit]
+    )
 
     for item in selected:
         try:
-            response = session.get(item["url"], timeout=45)
+            response = session.get(
+                item["url"],
+                timeout=45,
+            )
             response.raise_for_status()
             payload = response.content
+
             if payload[:2] == b"\x1f\x8b":
                 payload = gzip.decompress(payload)
 
-            xml_name = item["file_name"][:-3] + ".xml"
-            parsed = parse_price_rows(payload, "SHUFERSAL", xml_name)
+            xml_name = (
+                item["file_name"][:-3]
+                + ".xml"
+            )
+            parsed = parse_price_rows(
+                payload,
+                "SHUFERSAL",
+                xml_name,
+            )
+
             for row in parsed:
-                row["subchain_id"] = BE_SUBCHAIN
+                row["subchain_id"] = (
+                    item.get("subchain_id")
+                    or None
+                )
 
-            result["price_rows"].extend(parsed)
+            result["price_rows"].extend(
+                parsed
+            )
             result["files_seen"] += 1
-            result["kind_counts"][item["kind"]] = result["kind_counts"].get(item["kind"], 0) + 1
-            if len(result["sample_files"]) < 12:
-                result["sample_files"].append(xml_name)
+            result["kind_counts"][
+                item["kind"]
+            ] = (
+                result["kind_counts"].get(
+                    item["kind"],
+                    0,
+                )
+                + 1
+            )
 
-            if not parsed and len(result["price_schema_diagnostics"]) < 3:
-                result["price_schema_diagnostics"].append(price_file_diagnostics(payload, xml_name))
+            if len(
+                result["sample_files"]
+            ) < 12:
+                result["sample_files"].append(
+                    xml_name
+                )
+
+            if (
+                not parsed
+                and len(
+                    result[
+                        "price_schema_diagnostics"
+                    ]
+                ) < 3
+            ):
+                result[
+                    "price_schema_diagnostics"
+                ].append(
+                    price_file_diagnostics(
+                        payload,
+                        xml_name,
+                    )
+                )
+
         except Exception as exc:
-            result["errors"].append(f'{item["file_name"]}: {type(exc).__name__}: {exc}')
+            result["errors"].append(
+                f'{item["file_name"]}: '
+                f'{type(exc).__name__}: {exc}'
+            )
 
-    print(
-        f"🔎 SHUFERSAL/{pass_name} official Be files: "
-        f"{result['files_seen']} | baby_rows={len(result['price_rows'])}"
-    )
+    result["target_filter"] = {
+        "chain_id": chain_id,
+        "targets": sorted(
+            target_codes or []
+        ),
+        "selected_files": [
+            x["file_name"]
+            for x in selected
+        ],
+    }
     return result
 
 
-def _collect_be_official(
+def _target_found(
+    items: list[dict[str, str]],
     *,
-    full_limit: int,
-    incremental_limit: int,
+    chain_id: str,
+    branch_code: str,
+    kind: str = "price_full",
+) -> bool:
+    return any(
+        item["kind"] == kind
+        and item["branch_code"]
+        == branch_code
+        and _link_matches_chain(
+            item,
+            chain_id,
+        )
+        for item in items
+    )
+
+
+def _collect_target_branch_index(
+    session: requests.Session,
+    *,
+    chain_id: str,
+    target_codes: set[str],
     max_pages: int,
-    target_codes: set[str] | None = None,
-    session: requests.Session | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Find and download Be (subchain 005) files directly from the official index."""
-    owns_session = session is None
-    session = session or requests.Session()
-    session.headers.update({
-        "User-Agent": "baby-price-worker/0.23 (+price-transparency)",
-        "Accept": "text/html,application/xhtml+xml,*/*",
-    })
+) -> tuple[
+    list[dict[str, str]],
+    dict[str, Any],
+]:
+    discovered: list[
+        dict[str, str]
+    ] = []
+    errors: list[str] = []
+    targeted_requests = 0
+    fallback_pages = 0
 
-    full_links: list[dict[str, str]] = []
-    incremental_links: list[dict[str, str]] = []
-    scan_errors: list[str] = []
-    pages_scanned = 0
-
-    try:
-        for page in range(1, max_pages + 1):
+    # First ask the official index for each exact storeId.
+    for branch_code in sorted(
+        target_codes
+    ):
+        for page in range(1, 4):
             try:
                 response = session.get(
-                    BE_INDEX_URL,
+                    SHUF_INDEX_URL,
+                    params={
+                        "catID": 0,
+                        "page": page,
+                        "sort": "Time",
+                        "sortdir": "DESC",
+                        "storeId": branch_code,
+                    },
+                    timeout=30,
+                )
+                response.raise_for_status()
+                targeted_requests += 1
+
+                page_links = (
+                    _parse_shuf_target_links(
+                        response.text
+                    )
+                )
+                discovered.extend(
+                    page_links
+                )
+
+                if _target_found(
+                    discovered,
+                    chain_id=chain_id,
+                    branch_code=branch_code,
+                ):
+                    break
+
+                if (
+                    not page_links
+                    and page > 1
+                ):
+                    break
+
+            except Exception as exc:
+                errors.append(
+                    f"storeId={branch_code} "
+                    f"page={page}: "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                )
+                break
+
+    missing = {
+        code
+        for code in target_codes
+        if not _target_found(
+            discovered,
+            chain_id=chain_id,
+            branch_code=code,
+        )
+    }
+
+    # Global fallback only for targets the exact query did not find.
+    # Scan both directions because Shufersal subchains are interleaved.
+    if missing:
+        for sortdir in (
+            "ASC",
+            "DESC",
+        ):
+            for page in range(
+                1,
+                max_pages + 1,
+            ):
+                try:
+                    response = session.get(
+                        SHUF_INDEX_URL,
+                        params={
+                            "catID": 0,
+                            "page": page,
+                            "sort": "Branch",
+                            "sortdir": sortdir,
+                            "storeId": 0,
+                        },
+                        timeout=30,
+                    )
+                    response.raise_for_status()
+                    fallback_pages += 1
+
+                    discovered.extend(
+                        _parse_shuf_target_links(
+                            response.text
+                        )
+                    )
+
+                    missing = {
+                        code
+                        for code in missing
+                        if not _target_found(
+                            discovered,
+                            chain_id=chain_id,
+                            branch_code=code,
+                        )
+                    }
+
+                    if not missing:
+                        break
+
+                except Exception as exc:
+                    errors.append(
+                        f"fallback "
+                        f"{sortdir} "
+                        f"page={page}: "
+                        f"{type(exc).__name__}: "
+                        f"{exc}"
+                    )
+                    if len(errors) >= 8:
+                        break
+
+            if (
+                not missing
+                or len(errors) >= 8
+            ):
+                break
+
+    dedup: dict[
+        tuple[str, str],
+        dict[str, str],
+    ] = {}
+
+    for item in discovered:
+        dedup[
+            (
+                item["url"],
+                item["file_name"],
+            )
+        ] = item
+
+    return list(
+        dedup.values()
+    ), {
+        "targeted_requests": (
+            targeted_requests
+        ),
+        "fallback_pages": (
+            fallback_pages
+        ),
+        "targets": sorted(
+            target_codes
+        ),
+        "missing_targets": sorted(
+            missing
+        ),
+        "errors": errors[:8],
+    }
+
+
+def _collect_shuf_be_targeted_official(
+    *,
+    shuf_targets: set[str],
+    be_targets: set[str],
+    fallback_limit: int,
+    max_pages: int,
+    session: requests.Session
+    | None = None,
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, Any],
+]:
+    owns_session = (
+        session is None
+    )
+    session = (
+        session
+        or requests.Session()
+    )
+
+    session.headers.update({
+        "User-Agent": (
+            "baby-price-worker/0.24 "
+            "(+targeted-branches)"
+        ),
+        "Accept": (
+            "text/html,"
+            "application/xhtml+xml,"
+            "*/*"
+        ),
+    })
+
+    try:
+        all_links: list[
+            dict[str, str]
+        ] = []
+
+        if shuf_targets:
+            shuf_links, shuf_scan = (
+                _collect_target_branch_index(
+                    session,
+                    chain_id="shufersal",
+                    target_codes=shuf_targets,
+                    max_pages=max_pages,
+                )
+            )
+            all_links.extend(
+                shuf_links
+            )
+        else:
+            shuf_scan = {
+                "targeted_requests": 0,
+                "fallback_pages": 0,
+                "targets": [],
+                "missing_targets": [],
+                "errors": [],
+            }
+
+        if be_targets:
+            be_links, be_scan = (
+                _collect_target_branch_index(
+                    session,
+                    chain_id="be",
+                    target_codes=be_targets,
+                    max_pages=max_pages,
+                )
+            )
+            all_links.extend(
+                be_links
+            )
+        else:
+            be_scan = {
+                "targeted_requests": 0,
+                "fallback_pages": 0,
+                "targets": [],
+                "missing_targets": [],
+                "errors": [],
+            }
+
+        # Preserve a small bootstrap only when there is no local target plan.
+        if (
+            not shuf_targets
+            and not be_targets
+        ):
+            for page in range(
+                1,
+                max_pages + 1,
+            ):
+                response = session.get(
+                    SHUF_INDEX_URL,
                     params={
                         "catID": 0,
                         "page": page,
@@ -1006,125 +1429,268 @@ def _collect_be_official(
                     timeout=30,
                 )
                 response.raise_for_status()
-                page_links = _be_links_from_html(response.text)
-                pages_scanned += 1
+                all_links.extend(
+                    _parse_shuf_target_links(
+                        response.text
+                    )
+                )
 
-                for item in page_links:
-                    if item["kind"] == "price_full":
-                        full_links.append(item)
-                    elif item["kind"] == "price":
-                        incremental_links.append(item)
+                shuf_n = len(
+                    _newest_link_per_branch([
+                        x
+                        for x in all_links
+                        if (
+                            x["kind"]
+                            == "price_full"
+                            and _link_matches_chain(
+                                x,
+                                "shufersal",
+                            )
+                        )
+                    ])
+                )
+                be_n = len(
+                    _newest_link_per_branch([
+                        x
+                        for x in all_links
+                        if (
+                            x["kind"]
+                            == "price_full"
+                            and _link_matches_chain(
+                                x,
+                                "be",
+                            )
+                        )
+                    ])
+                )
 
-                if target_codes:
-                    found = {x["branch_code"] for x in _newest_per_branch(full_links)}
-                    if target_codes.issubset(found):
-                        break
-                elif (
-                    len(_newest_per_branch(full_links)) >= full_limit
-                    and len(_newest_per_branch(incremental_links)) >= incremental_limit
+                if (
+                    shuf_n
+                    >= fallback_limit
+                    and be_n
+                    >= fallback_limit
                 ):
                     break
-            except Exception as exc:
-                scan_errors.append(f"index page {page}: {type(exc).__name__}: {exc}")
-                if len(scan_errors) >= 5:
-                    break
 
-        full_pass = _download_be_price_pass(
-            session,
-            full_links,
-            pass_name="be_full_bootstrap",
-            file_type="PRICE_FULL_FILE",
-            limit=full_limit,
+        full_links = [
+            x
+            for x in all_links
+            if x["kind"]
+            == "price_full"
+        ]
+        inc_links = [
+            x
+            for x in all_links
+            if x["kind"]
+            == "price"
+        ]
+
+        shuf_full = (
+            _download_target_links(
+                session,
+                full_links,
+                chain_id="shufersal",
+                pass_name=(
+                    "shufersal_target_full"
+                ),
+                file_type=(
+                    "PRICE_FULL_FILE"
+                ),
+                target_codes=(
+                    shuf_targets or None
+                ),
+                fallback_limit=(
+                    fallback_limit
+                ),
+            )
         )
-        incremental_pass = _download_be_price_pass(
-            session,
-            incremental_links,
-            pass_name="be_incremental",
-            file_type="PRICE_FILE",
-            limit=incremental_limit,
+        shuf_inc = (
+            _download_target_links(
+                session,
+                inc_links,
+                chain_id="shufersal",
+                pass_name=(
+                    "shufersal_target_incremental"
+                ),
+                file_type="PRICE_FILE",
+                target_codes=(
+                    shuf_targets or None
+                ),
+                fallback_limit=(
+                    fallback_limit
+                ),
+            )
         )
-        full_pass["errors"] = scan_errors + full_pass["errors"]
+        be_full = (
+            _download_target_links(
+                session,
+                full_links,
+                chain_id="be",
+                pass_name="be_target_full",
+                file_type=(
+                    "PRICE_FULL_FILE"
+                ),
+                target_codes=(
+                    be_targets or None
+                ),
+                fallback_limit=(
+                    fallback_limit
+                ),
+            )
+        )
+        be_inc = (
+            _download_target_links(
+                session,
+                inc_links,
+                chain_id="be",
+                pass_name=(
+                    "be_target_incremental"
+                ),
+                file_type="PRICE_FILE",
+                target_codes=(
+                    be_targets or None
+                ),
+                fallback_limit=(
+                    fallback_limit
+                ),
+            )
+        )
+
+        shuf_full["errors"] = (
+            shuf_scan["errors"]
+            + shuf_full["errors"]
+        )
+        be_full["errors"] = (
+            be_scan["errors"]
+            + be_full["errors"]
+        )
+
+        def _stats(
+            chain_id: str,
+            targets: set[str],
+            scan: dict[str, Any],
+            full_pass: dict[str, Any],
+            inc_pass: dict[str, Any],
+        ) -> dict[str, Any]:
+            relevant_full = [
+                x
+                for x in _newest_link_per_branch(
+                    full_links
+                )
+                if (
+                    _link_matches_chain(
+                        x,
+                        chain_id,
+                    )
+                    and (
+                        not targets
+                        or x[
+                            "branch_code"
+                        ]
+                        in targets
+                    )
+                )
+            ]
+
+            return {
+                "targeted": bool(
+                    targets
+                ),
+                "target_branches": sorted(
+                    targets
+                ),
+                "targeted_requests": (
+                    scan[
+                        "targeted_requests"
+                    ]
+                ),
+                "fallback_pages": (
+                    scan[
+                        "fallback_pages"
+                    ]
+                ),
+                "missing_targets": (
+                    scan[
+                        "missing_targets"
+                    ]
+                ),
+                "index_errors": (
+                    scan["errors"]
+                ),
+                "full_links_found": [
+                    {
+                        "branch_code": (
+                            x["branch_code"]
+                        ),
+                        "subchain_id": (
+                            x.get(
+                                "subchain_id"
+                            )
+                            or None
+                        ),
+                        "file_name": (
+                            x["file_name"]
+                        ),
+                    }
+                    for x in relevant_full[
+                        :20
+                    ]
+                ],
+                "full_files_seen": (
+                    full_pass[
+                        "files_seen"
+                    ]
+                ),
+                "full_baby_rows": len(
+                    full_pass[
+                        "price_rows"
+                    ]
+                ),
+                "incremental_files_seen": (
+                    inc_pass[
+                        "files_seen"
+                    ]
+                ),
+                "incremental_baby_rows": len(
+                    inc_pass[
+                        "price_rows"
+                    ]
+                ),
+                "full_snapshot_found": (
+                    full_pass[
+                        "files_seen"
+                    ]
+                    > 0
+                ),
+            }
 
         stats = {
-            "subchain_id": BE_SUBCHAIN,
-            "target_branches": sorted(target_codes or []),
-            "pages_scanned": pages_scanned,
-            "index_errors": scan_errors[:5],
-            "full_links_found": len(_newest_per_branch(full_links)),
-            "incremental_links_found": len(_newest_per_branch(incremental_links)),
-            "full_files_seen": full_pass["files_seen"],
-            "full_baby_rows": len(full_pass["price_rows"]),
-            "incremental_files_seen": incremental_pass["files_seen"],
-            "incremental_baby_rows": len(incremental_pass["price_rows"]),
-            "full_snapshot_found": full_pass["files_seen"] > 0,
+            "shufersal": _stats(
+                "shufersal",
+                shuf_targets,
+                shuf_scan,
+                shuf_full,
+                shuf_inc,
+            ),
+            "be": _stats(
+                "be",
+                be_targets,
+                be_scan,
+                be_full,
+                be_inc,
+            ),
         }
-        return [full_pass, incremental_pass], stats
+
+        return [
+            shuf_full,
+            shuf_inc,
+            be_full,
+            be_inc,
+        ], stats
+
     finally:
         if owns_session:
             session.close()
-
-
-SHUF1_SUBCHAIN = "001"
-SHUF1_FILE_RE = re.compile(
-    r"^(?P<kind>PriceFull|Price)7290027600007-001-(?P<branch>\d+)-(?P<timestamp>\d{8}-\d{6})\.gz$",
-    re.I,
-)
-
-def _shuf1_links_from_html(page_html: str) -> list[dict[str, str]]:
-    out=[]; seen=set()
-    for href in re.findall(r"href\s*=\s*[\"']([^\"']+)[\"']", page_html or "", re.I):
-        url=html.unescape(href)
-        name=unquote(urlparse(url).path).rsplit("/",1)[-1]
-        m=SHUF1_FILE_RE.match(name)
-        if not m or url in seen: continue
-        seen.add(url)
-        out.append({"url":url,"file_name":name,"kind":"price_full" if m.group("kind").lower()=="pricefull" else "price","branch_code":m.group("branch"),"timestamp":m.group("timestamp")})
-    return out
-
-def _download_shuf1_price_pass(session, links, *, pass_name, file_type, limit, target_codes: set[str] | None = None):
-    result=_empty_direct_pass(pass_name,file_type,limit)
-    newest=_newest_per_branch(links)
-    selected=([x for x in newest if x["branch_code"] in target_codes] if target_codes else newest[:limit])
-    for item in selected:
-        try:
-            response=session.get(item["url"],timeout=45); response.raise_for_status()
-            payload=response.content
-            if payload[:2]==b"\x1f\x8b": payload=gzip.decompress(payload)
-            xml_name=item["file_name"][:-3]+".xml"
-            parsed=parse_price_rows(payload,"SHUFERSAL",xml_name)
-            for row in parsed: row["subchain_id"]=SHUF1_SUBCHAIN
-            result["price_rows"].extend(parsed); result["files_seen"]+=1
-            result["kind_counts"][item["kind"]]=result["kind_counts"].get(item["kind"],0)+1
-            if len(result["sample_files"])<12: result["sample_files"].append(xml_name)
-        except Exception as exc:
-            result["errors"].append(f'{item["file_name"]}: {type(exc).__name__}: {exc}')
-    result["target_filter"]={"targets":sorted(target_codes or []),"selected_files":[x["file_name"] for x in selected]}
-    return result
-
-def _collect_shuf1_official(*, full_limit:int, incremental_limit:int, max_pages:int, target_codes:set[str] | None=None, session:requests.Session | None=None):
-    owns=session is None; session=session or requests.Session()
-    session.headers.update({"User-Agent":"baby-price-worker/0.23 (+targeted-branches)","Accept":"text/html,application/xhtml+xml,*/*"})
-    full=[]; inc=[]; errors=[]; pages=0
-    try:
-        for page in range(1,max_pages+1):
-            try:
-                r=session.get(BE_INDEX_URL,params={"catID":0,"page":page,"sort":"Branch","sortdir":"ASC","storeId":0},timeout=30); r.raise_for_status(); pages+=1
-                for item in _shuf1_links_from_html(r.text):
-                    (full if item["kind"]=="price_full" else inc).append(item)
-                if target_codes:
-                    found={x["branch_code"] for x in _newest_per_branch(full)}
-                    if target_codes.issubset(found): break
-                elif len(_newest_per_branch(full))>=full_limit and len(_newest_per_branch(inc))>=incremental_limit: break
-            except Exception as exc:
-                errors.append(f"index page {page}: {type(exc).__name__}: {exc}")
-                if len(errors)>=5: break
-        fp=_download_shuf1_price_pass(session,full,pass_name="shufersal_target_full",file_type="PRICE_FULL_FILE",limit=full_limit,target_codes=target_codes)
-        ip=_download_shuf1_price_pass(session,inc,pass_name="shufersal_target_incremental",file_type="PRICE_FILE",limit=incremental_limit,target_codes=target_codes)
-        fp["errors"]=errors+fp["errors"]
-        stats={"subchain_id":SHUF1_SUBCHAIN,"target_branches":sorted(target_codes or []),"pages_scanned":pages,"index_errors":errors[:5],"full_links_found":len(_newest_per_branch(full)),"full_files_seen":fp["files_seen"],"full_baby_rows":len(fp["price_rows"]),"incremental_files_seen":ip["files_seen"],"incremental_baby_rows":len(ip["price_rows"])}
-        return [fp,ip],stats
-    finally:
-        if owns: session.close()
 
 
 async def _collect_scraper_pass(
@@ -1409,24 +1975,64 @@ async def collect_source(
 
     if scraper_name == "SHUFERSAL":
         stores_pass = await _collect_scraper_pass(
-            scraper_name, file_types=["STORE_FILE"], limit=1, pass_name="stores"
+            scraper_name,
+            file_types=["STORE_FILE"],
+            limit=1,
+            pass_name="stores",
         )
-        shuf_targets = _target_codes(target_plan, "shufersal")
-        be_targets = _target_codes(target_plan, "be")
-        fallback = max(1, file_limit or 20)
-        max_pages = int(os.environ.get("SHUFERSAL_TARGET_INDEX_MAX_PAGES", "100"))
 
-        shuf_passes, shuf_stats = _collect_shuf1_official(
-            full_limit=fallback, incremental_limit=fallback, max_pages=max_pages, target_codes=shuf_targets or None
+        shuf_targets = _target_codes(
+            target_plan,
+            "shufersal",
         )
-        be_passes, be_stats = _collect_be_official(
-            full_limit=fallback, incremental_limit=fallback, max_pages=max_pages, target_codes=be_targets or None
+        be_targets = _target_codes(
+            target_plan,
+            "be",
         )
-        data = _merge_source_passes(scraper_name, file_limit, [stores_pass] + shuf_passes + be_passes)
-        data["scrape_file_limit"] = {"stores":1,"targeted":True,"fallback":fallback,"index_max_pages":max_pages}
-        data["shufersal_bootstrap"] = {**shuf_stats, "targeted": bool(shuf_targets)}
-        data["be_bootstrap"] = {**be_stats, "targeted": bool(be_targets)}
-        data["targeted_branch_coverage"] = {"shufersal":shuf_stats,"be":be_stats}
+
+        fallback = max(
+            1,
+            file_limit or 20,
+        )
+        max_pages = int(
+            os.environ.get(
+                "SHUFERSAL_TARGET_INDEX_MAX_PAGES",
+                "100",
+            )
+        )
+
+        target_passes, target_stats = (
+            _collect_shuf_be_targeted_official(
+                shuf_targets=shuf_targets,
+                be_targets=be_targets,
+                fallback_limit=fallback,
+                max_pages=max_pages,
+            )
+        )
+
+        data = _merge_source_passes(
+            scraper_name,
+            file_limit,
+            [stores_pass]
+            + target_passes,
+        )
+        data["scrape_file_limit"] = {
+            "stores": 1,
+            "targeted": True,
+            "fallback": fallback,
+            "index_max_pages": max_pages,
+        }
+        data[
+            "shufersal_bootstrap"
+        ] = target_stats[
+            "shufersal"
+        ]
+        data[
+            "be_bootstrap"
+        ] = target_stats["be"]
+        data[
+            "targeted_branch_coverage"
+        ] = target_stats
         return data
 
     if scraper_name == "RAMI_LEVY":
