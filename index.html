@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#6557e8">
-<title>Baby Smart List · Pilot v0.21</title>
+<title>Baby Smart List · Pilot v0.22</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -78,7 +78,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 <div>
   <div class="brand"><div class="logo">🛒</div><div><h1 id="title">המלאי של התינוק</h1><div class="sub">מה חסר בבית, איפה הכי משתלם לקנות</div></div></div>
   <div class="sync">● מסונכרן בזמן אמת</div>
-  <div class="pilot-badge">🧪 שלב 1 · 4 רשתות פעילות · נתוני אמת</div>
+  <div class="pilot-badge">📍 v0.22 · סינון אזורי קשיח · 4 רשתות</div>
   <div class="chain-strip" aria-label="רשתות פעילות">
     <span>רמי לוי</span><span>יוחננוף</span><span>שופרסל</span><span>Be</span>
   </div>
@@ -97,7 +97,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 <section class="card shopping">
   <div id="shop" class="rows"></div>
   <div id="emptyshop" class="sub" style="text-align:center;padding:18px">הכול מסודר כרגע 🎉</div>
-  <div class="note">🛒 Pilot של שלב 1: מסמנים שחסר, משווים חיתולים / תמ״ל / מגבונים בין רמי לוי, יוחננוף, שופרסל ו־Be. כרגע מוצג המחיר הזול שנמצא בכל רשת; סינון מדויק לפי מרחק יופעל אחרי השלמת metadata של הסניפים.</div>
+  <div class="note">📍 v0.22: מוצגים רק סניפים שה־metadata שלהם תואם לאזור שהוגדר. אם לרשת אין כרגע נתוני סניף מקומיים אמינים, היא לא תציג מחיר ארצי כתחליף.</div>
 </section>
 
 <div class="sect"><h2>📦 הצרכים שלנו</h2><small id="pcount"></small></div>
@@ -238,6 +238,35 @@ const NEEDS={
 const SUPPORTED_NEEDS=new Set(["diapers","wipes","formula"]);
 const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be"];
 const CHAIN_LABELS={rami_levy:"רמי לוי",yochananof:"יוחננוף",shufersal:"שופרסל",be:"Be"};
+const LOCALITY_CODES_BY_NAME={
+  "שדרות":"1031"
+};
+function normPlace(v){
+  return String(v||"")
+    .trim()
+    .replace(/[\u200e\u200f]/g,"")
+    .replace(/\s+/g," ");
+}
+function isNumericPlace(v){
+  return /^\d+$/.test(normPlace(v));
+}
+function rowMatchesHouseholdArea(r){
+  const wanted=normPlace(household?.city);
+  if(!wanted)return false;
+
+  const city=normPlace(r.city);
+  const code=LOCALITY_CODES_BY_NAME[wanted];
+
+  // Strongest match: retailer locality code.
+  if(code && city===code)return true;
+
+  // Some Stores feeds expose the real city name instead of a numeric code.
+  if(city && !isNumericPlace(city) && city===wanted)return true;
+
+  // Deliberately do NOT infer locality from address or a loose substring in
+  // branch_name: "שדרות רבין" in Yokneam must not become "Sderot".
+  return false;
+}
 let session=null,household=null,member=null,items=[],alts=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null;
 const $=x=>document.getElementById(x),esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function view(id){["auth","onboard","app"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
@@ -259,7 +288,7 @@ async function loadAll(){
 async function invite(){let {data}=await sb.from("household_invites").select("code").eq("household_id",household.id).gt("expires_at",new Date().toISOString()).order("created_at",{ascending:false}).limit(1).maybeSingle();if(!data&&member.role==="owner"){let r=await sb.from("household_invites").insert({household_id:household.id}).select("code").single();data=r.data}$("code").textContent=data?.code||"אין קוד פעיל"}
 function subscribe(){
   if(channel)sb.removeChannel(channel);
-  channel=sb.channel("baby-v021-"+household.id)
+  channel=sb.channel("baby-v022-"+household.id)
     .on("postgres_changes",{event:"*",schema:"public",table:"products",filter:`household_id=eq.${household.id}`},loadAll)
     .on("postgres_changes",{event:"*",schema:"public",table:"product_alternatives",filter:`household_id=eq.${household.id}`},loadAll)
     .subscribe()
@@ -421,16 +450,17 @@ async function comparePrices(id){
 
   $("ctitle").textContent="🔎 "+p.name+(p.need_detail?" · "+p.need_detail:"");
   $("csub").textContent=`השוואה ישירה בין 4 רשתות לפי ${MODES[p.comparison_mode]||MODES.unit}`;
-  $("clocation").innerHTML=`<b>אזור רצוי:</b> ${esc(household?.city||"לא הוגדר")} · ${household?.search_radius_km||10} ק״מ<br><span class="sub">Pilot: כרגע מוצג המחיר הזול שנמצא בכל רשת, ללא סינון מרחק אמיתי.</span>`;
+  $("clocation").innerHTML=`<b>אזור רצוי:</b> ${esc(household?.city||"לא הוגדר")} · ${household?.search_radius_km||10} ק״מ<br><span class="sub">v0.22: אין fallback לכל הארץ. כרגע גבול הבטיחות הוא היישוב שהוגדר; רדיוס קילומטרי אמיתי יופעל כשיהיו קואורדינטות מלאות לסניפים.</span>`;
   $("cbody").className="loading";$("cbody").innerHTML="טוען מחירים מהמאגר שלנו…";
   $("purchasebox").classList.add("hidden");$("feedbackbox").classList.add("hidden");
   $("cdlg").showModal();
 
-  let q=sb.from("baby_ui_best_prices")
-    .select("chain_id,branch_code,branch_name,city,address,barcode,need_key,dimension_type,dimension_value,brand,product_name,best_price,canonical_package_quantity,canonical_package_unit,normalized_unit_price,normalized_unit_label,quantity_source,source_updated_at")
+  let q=sb.from("baby_normalized_prices")
+    .select("chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,effective_price,canonical_package_quantity,canonical_package_unit,normalized_unit_price,normalized_unit_label,quantity_source,source_updated_at")
     .eq("need_key",p.need_key)
     .in("chain_id",ACTIVE_CHAINS)
-    .not("normalized_unit_price","is",null);
+    .not("normalized_unit_price","is",null)
+    .eq("unresolved_quantity_conflict",false);
 
   if(p.dimension_type&&p.dimension_type!=="none"&&p.dimension_value){
     q=q.eq("dimension_type",p.dimension_type).eq("dimension_value",String(p.dimension_value));
@@ -446,8 +476,38 @@ async function comparePrices(id){
     return;
   }
 
-  let rows=(data||[]).filter(r=>cleanPilotCandidate(r,p));
-  let results=rows.map(r=>directQuote(r,p)).filter(r=>Number.isFinite(r.score)&&Number.isFinite(r.effective_price));
+  const branchKeys=[...new Set((data||[]).map(r=>`${r.chain_id}|${r.branch_code}`))];
+  const {data:branchData,error:branchError}=await sb.from("retail_branches")
+    .select("chain_id,branch_code,branch_name,city,address")
+    .in("chain_id",ACTIVE_CHAINS);
+  if(branchError){
+    $("cbody").className="msg err";
+    $("cbody").textContent="לא הצלחתי לטעון את מיקומי הסניפים: "+branchError.message;
+    return;
+  }
+  const bmap=new Map((branchData||[]).map(b=>[`${b.chain_id}|${b.branch_code}`,b]));
+
+  let rows=(data||[])
+    .map(r=>({...r,...(bmap.get(`${r.chain_id}|${r.branch_code}`)||{})}))
+    .filter(r=>rowMatchesHouseholdArea(r))
+    .filter(r=>cleanPilotCandidate(r,p));
+
+  let results=rows.map(r=>{
+    const q=directQuote({...r,best_price:r.effective_price},p);
+    return q;
+  }).filter(r=>Number.isFinite(r.score)&&Number.isFinite(r.effective_price));
+
+  // v0.22 ranks local branches only. First choose the cheapest local branch
+  // per chain+barcode, then compare products/chains.
+  const localBest=new Map();
+  results.forEach(r=>{
+    const k=`${r.chain_id}|${r.barcode}`;
+    const old=localBest.get(k);
+    if(!old||r.score<old.score||(r.score===old.score&&r.effective_price<old.effective_price)){
+      localBest.set(k,r);
+    }
+  });
+  results=[...localBest.values()];
 
   // Deduplicate exact chain+barcode entries defensively.
   const dedup=new Map();
@@ -472,7 +532,7 @@ async function comparePrices(id){
     : null;
 
   lastCompare={
-    source:"supabase_v021",
+    source:"supabase_v022_local",
     comparison_mode:p.comparison_mode||"unit",
     candidates_checked:checked,
     results,
@@ -491,7 +551,7 @@ function renderComparison(){
     $("cbody").className="msg";
     $("cbody").innerHTML=currentNeed?.preferred_barcode
       ?"לא נמצא כרגע מחיר למוצר המועדף בהגדרות שבחרת. אפשר לאפשר מותגים חלופיים ולנסות שוב."
-      :"לא נמצאו כרגע מחירים מתאימים במאגר.";
+      :`לא נמצאו כרגע מחירים עם metadata מקומי אמין עבור ${esc(household?.city||"האזור שהוגדר")}. v0.22 לא מציג מחיר מרשת אחרת בארץ כתחליף.`;
     return;
   }
 
@@ -501,7 +561,7 @@ function renderComparison(){
   const brands=[...new Set(checked.map(x=>x.brand).filter(Boolean))];
   const chainCount=new Set(results.map(r=>r.chain_id)).size;
 
-  let summary=`<div class="scope-note"><b>🧪 Pilot:</b> נמצאו ${results.length} הצעות עבור ${checked.length} מוצרים ב־${chainCount} רשתות. כרגע כל רשת מיוצגת במחיר הזול ביותר שנמצא בה, ולא לפי המרחק מהבית.</div>`;
+  let summary=`<div class="scope-note"><b>🧪 Pilot:</b> נמצאו ${results.length} הצעות מקומיות עבור ${checked.length} מוצרים ב־${chainCount} רשתות. תוצאות מחוץ ליישוב שהוגדר נחסמות ולא מוצגות.</div>`;
 
   if(data.preferred_barcode){
     if(data.preferred_best){
