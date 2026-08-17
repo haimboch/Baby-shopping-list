@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#6557e8">
-<title>Baby Smart List · Pilot v0.30</title>
+<title>Baby Smart List · Pilot v0.31</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -66,6 +66,59 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 .loading{padding:30px;text-align:center;color:var(--muted)}.feedback{border-top:1px solid var(--line);margin-top:15px;padding-top:12px}.feedback .actions{margin-top:8px}
 .purchase-box{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}.saving{font-weight:900;color:#087c58}
 @media(max-width:680px){.stats{grid-template-columns:1fr 1fr}.products{grid-template-columns:1fr}.two{grid-template-columns:1fr}.top{align-items:flex-start}.top-actions{max-width:46%}}
+
+/* v0.31 Pilot UX */
+:root{--surface:#ffffff;--surface2:#fafbfe;--shadow:0 10px 30px rgba(35,38,49,.07)}
+body{background:linear-gradient(180deg,#f6f7fb 0,#f7f8fb 45%,#f2f4f8 100%)}
+.card{box-shadow:var(--shadow)}
+.btn{min-height:42px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.primary{box-shadow:0 7px 18px rgba(101,87,232,.18)}
+.onboard-page{min-height:100vh;padding:18px 14px 40px}
+.onboarding-shell{width:min(650px,100%);margin:0 auto}
+.onboarding-brand{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:8px 2px 18px}
+.onboarding-brand .brandcopy h1{font-size:1.35rem;margin:0}.onboarding-brand .brandcopy p{margin:4px 0 0;color:var(--muted);font-size:.86rem}
+.onboard-time{background:#eef8f4;color:#087b58;border:1px solid #cae8dc;border-radius:999px;padding:6px 10px;font-size:.75rem;font-weight:900;white-space:nowrap}
+.wizard{padding:18px;overflow:hidden}
+.stepper{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:20px}
+.stepper-item{text-align:center;color:#9a9eac;font-size:.69rem;font-weight:800;position:relative}
+.stepper-item:before{content:"";display:block;height:5px;border-radius:999px;background:#e8eaf0;margin-bottom:7px}
+.stepper-item.active{color:var(--p)}.stepper-item.active:before,.stepper-item.done:before{background:var(--p)}.stepper-item.done{color:#5a5f70}
+.ostep h2{font-size:1.3rem;margin:0 0 6px}.ostep .lead{color:var(--muted);margin:0 0 18px;line-height:1.55}
+.wizard-actions{display:flex;gap:8px;margin-top:18px}.wizard-actions .primary{flex:1}.wizard-actions .btn:not(.primary){min-width:90px}
+.onboard-location-state{border:1px dashed #cfd3e4;background:#fbfbff;border-radius:14px;padding:12px;margin-top:10px;color:#596071;font-size:.82rem;line-height:1.5}
+.location-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.choice-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-top:12px}
+.choice-card{border:1px solid var(--line);background:#fff;border-radius:15px;padding:12px;cursor:pointer;position:relative;transition:.15s ease}
+.choice-card:has(input:checked){border-color:#aaa1ff;background:#f7f5ff;box-shadow:inset 0 0 0 1px #cfcaff}
+.choice-card input[type=checkbox]{position:absolute;top:11px;left:11px;width:20px;height:20px;accent-color:var(--p)}
+.choice-emoji{font-size:1.45rem}.choice-card b{display:block;margin-top:5px}.choice-card small{color:var(--muted);display:block;margin-top:3px;line-height:1.4}
+.choice-extra{margin-top:9px}.choice-extra select{padding:8px;border:1px solid var(--line);border-radius:10px;width:100%;background:#fff}
+.qty-grid{display:grid;gap:8px;margin-top:12px}.qty-row{display:grid;grid-template-columns:1fr 115px;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:11px;background:#fff}.qty-row .qty-name b{display:block}.qty-row .qty-name small{color:var(--muted)}.qty-row input{border:1px solid var(--line);border-radius:10px;padding:9px;width:100%;text-align:center}
+.onboard-helper{margin-top:12px;padding:11px;border-radius:13px;background:#f4f8ff;color:#435064;font-size:.8rem;line-height:1.55}
+.join-box{border-top:1px solid var(--line);margin-top:18px;padding-top:15px}.link-btn{border:0;background:none;color:var(--p);padding:4px;font-weight:800;text-decoration:underline;text-underline-offset:3px}
+.app-hero{padding:15px;margin-bottom:10px;background:linear-gradient(135deg,#ffffff,#f7f6ff)}
+.app-hero-row{display:flex;justify-content:space-between;gap:14px;align-items:center}.app-hero h2{font-size:1.12rem;margin:3px 0 4px}.app-hero p{margin:0;color:var(--muted);font-size:.82rem}.hero-kicker{font-size:.73rem;color:#6557e8;font-weight:900}.hero-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.hero-chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 8px;font-size:.72rem;color:#5b6070;font-weight:800}
+.top{background:rgba(255,255,255,.78);backdrop-filter:blur(12px);border:1px solid rgba(230,232,239,.9);border-radius:18px;padding:12px;margin-bottom:10px;position:sticky;top:8px;z-index:15;box-shadow:0 8px 25px rgba(35,38,49,.05)}
+.top .brand .logo{width:42px;height:42px;border-radius:14px}.top .sync{margin-top:3px;color:#087b58;font-size:.72rem;font-weight:800}.top .sub{font-size:.77rem}
+.top-actions .btn{padding:9px 10px;min-height:38px}
+.stats{margin-top:10px}.stat{box-shadow:none}.stat b{font-size:1.25rem}.stat small{font-size:.7rem}
+.shopping{padding:10px}.row{background:#fff}.row .actions{justify-content:flex-end}
+.sect{margin-top:17px}.sect h2{font-size:1.05rem}
+.product{box-shadow:0 6px 20px rgba(35,38,49,.05)}
+.product .inventory-box{order:0}.product .status-guide{font-size:.72rem;color:var(--muted);margin-top:11px;margin-bottom:-4px;font-weight:800}
+.statuses{margin-top:8px}.sbtn{min-height:47px}
+.compare-btn{min-height:43px;background:#f7f5ff}
+.pilot-badge,.chain-strip{display:none!important}
+.app-footnote{text-align:center;color:#9296a5;font-size:.68rem;margin:28px 0 5px}
+.empty-friendly{padding:24px 15px;text-align:center}.empty-friendly .big{font-size:2rem}.empty-friendly b{display:block;margin:7px 0}.empty-friendly small{color:var(--muted);line-height:1.5}
+@media(max-width:680px){
+ .shell{padding:8px 9px 90px}.top{top:5px}.top .brand .sub{display:none}.top-actions{max-width:none}.top-actions .btn{font-size:.78rem}
+ .app-hero-row{align-items:flex-start}.app-hero-row .btn{padding:8px 10px;font-size:.78rem}
+ .choice-grid{grid-template-columns:1fr}.location-actions{grid-template-columns:1fr}.wizard{padding:15px}.onboarding-brand{align-items:flex-start}.onboard-time{font-size:.69rem}
+ .qty-row{grid-template-columns:1fr 92px}.stats{grid-template-columns:repeat(4,1fr);gap:5px}.stat{padding:9px 6px;text-align:center}.stat b{font-size:1.1rem}.stat small{font-size:.62rem}
+ .row{grid-template-columns:1fr}.row .actions{justify-content:flex-start}.row .actions .btn,.row .actions .bought{flex:1}
+}
+
 </style>
 </head>
 <body>
@@ -80,30 +133,84 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 </section>
 </div>
 
-<div id="onboard" class="center hidden">
-<section class="card panel">
-<h2>חיבור למלאי המשפחתי</h2>
-<div class="actions"><button class="btn primary" id="newbtn">🏠 צור מלאי חדש</button><button class="btn" id="joinbtn">🔗 הצטרף בקוד</button></div>
-<div id="newbox" class="hidden"><div class="field"><label>שם</label><input id="hname" value="המלאי של התינוק"></div><button class="btn primary" id="create">צור</button></div>
-<div id="joinbox" class="hidden"><div class="field"><label>קוד משפחתי</label><input id="joincode"></div><button class="btn primary" id="join">הצטרף</button></div>
-<div id="onmsg" class="msg hidden"></div>
-<button class="btn" id="outsimple" style="margin-top:14px">התנתק</button>
-</section>
+<div id="onboard" class="onboard-page hidden">
+<main class="onboarding-shell">
+  <div class="onboarding-brand">
+    <div class="brand"><div class="logo">👶</div><div class="brandcopy"><h1>בואו נכין את הבית</h1><p>מלאי משותף, מחירים קרובים, פחות לזכור בראש.</p></div></div>
+    <div class="onboard-time">⏱️ כ־2 דקות</div>
+  </div>
+
+  <section class="card wizard" id="wizardbox">
+    <div class="stepper" id="ostepper">
+      <div class="stepper-item active" data-stepmark="1">משפחה</div>
+      <div class="stepper-item" data-stepmark="2">מיקום</div>
+      <div class="stepper-item" data-stepmark="3">מוצרים</div>
+      <div class="stepper-item" data-stepmark="4">מלאי</div>
+    </div>
+
+    <section class="ostep" id="ostep1">
+      <h2>🏠 איך נקרא למלאי שלכם?</h2>
+      <p class="lead">זה השם שיופיע לשני בני הזוג. אפשר לשנות אותו בהמשך.</p>
+      <div class="field"><label>שם המשפחה / המלאי</label><input id="ohname" maxlength="60" placeholder="למשל: הבית של מאיה ודניאל"></div>
+      <div class="wizard-actions"><button class="btn primary" id="onext1">המשך למיקום ←</button></div>
+      <div class="join-box">כבר קיבלת קוד מבן/בת הזוג? <button class="link-btn" id="oshowjoin">הצטרף למלאי קיים</button></div>
+    </section>
+
+    <section class="ostep hidden" id="ostep2">
+      <h2>📍 איפה לחפש מחירים?</h2>
+      <p class="lead">המיקום משמש רק כדי להציג סניפים בטווח שבחרת.</p>
+      <div class="field"><label>עיר</label><input id="ocity" placeholder="למשל: שדרות"></div>
+      <div class="field"><label>רדיוס חיפוש</label><select id="oradius"><option value="5">5 ק״מ</option><option value="10">10 ק״מ</option><option value="15" selected>15 ק״מ</option><option value="20">20 ק״מ</option><option value="30">30 ק״מ</option></select></div>
+      <div class="location-actions"><button class="btn soft" id="ocitycenter">🎯 מרכז העיר</button><button class="btn" id="ogps">📡 המיקום שלי</button></div>
+      <div class="onboard-location-state" id="olocationstate">בחר מרכז עיר או GPS כדי להפעיל השוואת מחירים מקומית.</div>
+      <div id="onmsg" class="msg hidden"></div>
+      <div class="wizard-actions"><button class="btn" data-oback="1">חזרה</button><button class="btn primary" id="onext2">המשך למוצרים ←</button></div>
+    </section>
+
+    <section class="ostep hidden" id="ostep3">
+      <h2>🧺 במה תרצו לעקוב?</h2>
+      <p class="lead">בחרו רק מה שבאמת רלוונטי עכשיו. תמיד אפשר להוסיף או להסיר אחר כך.</p>
+      <div class="choice-grid" id="startergrid"></div>
+      <div class="wizard-actions"><button class="btn" data-oback="2">חזרה</button><button class="btn primary" id="onext3">המשך למלאי ←</button></div>
+    </section>
+
+    <section class="ostep hidden" id="ostep4">
+      <h2>📦 כמה יש כרגע בבית?</h2>
+      <p class="lead">לא חייבים לדעת הכול. אפשר להשאיר שדה ריק ולעדכן אחר כך.</p>
+      <div class="qty-grid" id="starterqty"></div>
+      <div class="onboard-helper">מכאן זה פשוט: כשאריזה נגמרת לוחצים <b>−1</b>. כשקונים דרך האפליקציה המלאי עולה אוטומטית.</div>
+      <div id="ofinishmsg" class="msg hidden"></div>
+      <div class="wizard-actions"><button class="btn" data-oback="3">חזרה</button><button class="btn primary" id="ofinish">✨ סיימנו, פתח את הבית</button></div>
+    </section>
+
+    <section class="ostep hidden" id="ojoinpanel">
+      <h2>🔗 הצטרפות למלאי קיים</h2>
+      <p class="lead">הכנס את הקוד שקיבלת מבן/בת הזוג.</p>
+      <div class="field"><label>קוד משפחתי</label><input id="ojoincode" autocomplete="one-time-code"></div>
+      <div id="ojoinmsg" class="msg hidden"></div>
+      <div class="wizard-actions"><button class="btn" id="ojoinback">חזרה</button><button class="btn primary" id="ojoin">הצטרף</button></div>
+    </section>
+  </section>
+  <div style="text-align:center;margin-top:12px"><button class="link-btn" id="outsimple">התנתק</button></div>
+</main>
 </div>
 
 <div id="app" class="hidden">
 <main class="shell">
 <header class="top">
 <div>
-  <div class="brand"><div class="logo">🛒</div><div><h1 id="title">המלאי של התינוק</h1><div class="sub">מה חסר בבית, איפה הכי משתלם לקנות</div></div></div>
-  <div class="sync">● מסונכרן בזמן אמת</div>
-  <div class="pilot-badge">📦 v0.30 · Inventory Intelligence · היסטוריית מלאי + קצב צריכה</div>
-  <div class="chain-strip" aria-label="רשתות פעילות">
-    <span>רמי לוי</span><span>יוחננוף</span><span>שופרסל</span><span>Be</span>
-  </div>
+  <div class="brand"><div class="logo">👶</div><div><h1 id="title">המלאי של התינוק</h1><div class="sub">מה יש בבית ומה צריך לקנות</div></div></div>
+  <div class="sync">● מסונכרן</div>
 </div>
-<div class="top-actions"><button class="btn" id="location">📍 מיקום</button><button class="btn" id="family">👥 משפחה</button></div>
+<div class="top-actions"><button class="btn" id="location">📍 אזור</button><button class="btn" id="family">👥 משפחה</button></div>
 </header>
+<section class="card app-hero">
+  <div class="app-hero-row">
+    <div><div class="hero-kicker">היום בבית</div><h2 id="herotitle">טוען מצב…</h2><p id="herosub">מיד נראה מה דורש תשומת לב.</p></div>
+    <button class="btn primary" id="heroaction">פתח רשימה</button>
+  </div>
+  <div class="hero-meta"><span class="hero-chip" id="herotracked">📦 0 מוצרים</span><span class="hero-chip" id="heroradius">📍 אזור לא הוגדר</span><span class="hero-chip" id="herolearning">📈 מתחילים ללמוד צריכה</span></div>
+</section>
 
 <section class="stats">
 <div class="stat ok"><b id="c-ok">0</b><small>🟢 יש מספיק</small></div>
@@ -115,8 +222,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 <div class="sect"><h2>🛒 צריך לקנות</h2><small id="shopcount"></small></div>
 <section class="card shopping">
   <div id="shop" class="rows"></div>
-  <div id="emptyshop" class="sub" style="text-align:center;padding:18px">הכול מסודר כרגע 🎉</div>
-  <div class="note">📍 v0.23: האזור נלקח מהבחירה של המשתמש. קוד היישוב והסניפים מוסקים דינמית מה־metadata. אין רשימת ערים מקודדת מראש ואין fallback למחיר ארצי.</div>
+  <div id="emptyshop" class="empty-friendly"><div class="big">✅</div><b>אין כרגע מה לקנות</b><small>כשהמלאי יורד, המוצרים יופיעו כאן אוטומטית.</small></div>
 </section>
 
 <div class="sect"><h2>📦 הצרכים שלנו</h2><small id="pcount"></small></div>
@@ -125,6 +231,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 </div>
 <section id="products" class="products"></section>
 </main>
+<div class="app-footnote">Baby Smart List · Pilot v0.31</div>
 <button class="fab" id="add">＋ צורך</button>
 </div>
 
@@ -310,13 +417,102 @@ function rowMatchesArea(r,profile){
   if(profile.codes?.includes(c))return true;
   return false;
 }
-let session=null,household=null,member=null,items=[],alts=[],consumption=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null;
+let session=null,household=null,member=null,items=[],alts=[],consumption=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null,onboardStep=1,onboardLocation=null;
 const $=x=>document.getElementById(x),esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function view(id){["auth","onboard","app"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
 function msg(id,t,e=false){let x=$(id);x.textContent=t;x.classList.remove("hidden","err");if(e)x.classList.add("err")}
 function needAlts(id){return alts.filter(a=>a.product_id===id&&a.active!==false)}
+
+const STARTER_NEEDS=[
+  {key:"diapers",name:"טיטולים",emoji:"🧷",desc:"מעקב לפי חבילות ומידה",unit:"חבילות",selected:true,dim:"size"},
+  {key:"wipes",name:"מגבונים",emoji:"🧻",desc:"כמה חבילות נשארו בבית",unit:"חבילות",selected:true},
+  {key:"formula",name:"תמ״ל",emoji:"🍼",desc:"מעקב קופסאות והשוואה לפי 100 גרם",unit:"קופסאות",selected:true,dim:"stage"},
+  {key:"diaper_cream",name:"משחת החתלה",emoji:"🧴",desc:"מוצר קבוע בעמדת ההחתלה",unit:"יחידות",selected:true},
+  {key:"baby_wash",name:"סבון רחצה",emoji:"🛁",desc:"רחצה וטיפוח",unit:"יחידות",selected:true},
+  {key:"bath_oil",name:"שמן אמבטיה / אמול",emoji:"🫧",desc:"רחצה וטיפוח",unit:"יחידות",selected:false},
+  {key:"changing_pads",name:"משטחי החתלה",emoji:"🧺",desc:"משטחים חד־פעמיים",unit:"יחידות",selected:false},
+  {key:"diaper_bags",name:"שקיות לחיתולים",emoji:"🗑️",desc:"שקיות לחיתולים מלוכלכים",unit:"יחידות",selected:false},
+  {key:"body_cream",name:"קרם גוף",emoji:"🌿",desc:"טיפוח עור התינוק",unit:"יחידות",selected:false},
+  {key:"baby_laundry",name:"חומר כביסה לתינוק",emoji:"🧺",desc:"כביסה ייעודית לתינוק",unit:"יחידות",selected:false}
+];
+function selectedStarterNeeds(){
+  return STARTER_NEEDS.filter(x=>document.querySelector(`[data-starter="${x.key}"]`)?.checked);
+}
+function renderOnboardStepper(){
+  document.querySelectorAll("[data-stepmark]").forEach(el=>{
+    const n=Number(el.dataset.stepmark);
+    el.classList.toggle("active",n===onboardStep);
+    el.classList.toggle("done",n<onboardStep);
+  });
+}
+function setOnboardStep(n){
+  onboardStep=n;
+  [1,2,3,4].forEach(i=>$("ostep"+i).classList.toggle("hidden",i!==n));
+  $("ojoinpanel").classList.add("hidden");
+  $("ostepper").classList.remove("hidden");
+  if(n===3)renderStarterGrid();
+  if(n===4)renderStarterQuantities();
+  renderOnboardStepper();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function initOnboarding(){
+  onboardStep=1;onboardLocation=null;
+  $("ohname").value="";$("ocity").value="";$("oradius").value="15";
+  $("olocationstate").textContent="בחר מרכז עיר או GPS כדי להפעיל השוואת מחירים מקומית.";
+  STARTER_NEEDS.forEach(x=>x.selected=["diapers","wipes","formula","diaper_cream","baby_wash"].includes(x.key));
+  setOnboardStep(1);
+}
+function renderStarterGrid(){
+  $("startergrid").innerHTML=STARTER_NEEDS.map(x=>{
+    const extra=x.dim==="size"?`<div class="choice-extra"><select data-starterdim="diapers"><option value="0">מידה 0</option>${[1,2,3,4,5,6,7,8].map(v=>`<option value="${v}" ${v===1?"selected":""}>מידה ${v}</option>`).join("")}</select></div>`
+      :x.dim==="stage"?`<div class="choice-extra"><select data-starterdim="formula">${[1,2,3].map(v=>`<option value="${v}">שלב ${v}</option>`).join("")}</select></div>`:"";
+    return `<label class="choice-card"><input type="checkbox" data-starter="${x.key}" ${x.selected?"checked":""}><span class="choice-emoji">${x.emoji}</span><b>${esc(x.name)}</b><small>${esc(x.desc)}</small>${extra}</label>`;
+  }).join("");
+}
+function renderStarterQuantities(){
+  const selected=selectedStarterNeeds();
+  $("starterqty").innerHTML=selected.map(x=>`<div class="qty-row"><div class="qty-name"><b>${x.emoji} ${esc(x.name)}</b><small>${esc(x.unit)} בבית כרגע</small></div><input type="number" min="0" step="1" inputmode="numeric" data-starterqty="${x.key}" placeholder="דלג"></div>`).join("");
+}
+async function geocodeOnboardCity(){
+  const city=$("ocity").value.trim();
+  if(!city)return msg("onmsg","כתוב עיר לפני בחירת מרכז העיר.",true);
+  $("olocationstate").textContent="מאתר את מרכז "+city+"…";
+  try{
+    const url=new URL("https://nominatim.openstreetmap.org/search");
+    url.searchParams.set("format","jsonv2");url.searchParams.set("q",city+", ישראל");url.searchParams.set("countrycodes","il");url.searchParams.set("limit","1");url.searchParams.set("accept-language","he");
+    const r=await fetch(url.toString(),{headers:{Accept:"application/json"},referrerPolicy:"strict-origin-when-cross-origin"});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const data=await r.json();if(!data?.length)throw new Error("לא נמצאה העיר");
+    onboardLocation={lat:Number(data[0].lat),lon:Number(data[0].lon),source:"city"};
+    $("olocationstate").innerHTML=`✅ מרכז <b>${esc(city)}</b> נקלט. אפשר להמשיך.`;$("onmsg").classList.add("hidden");
+  }catch(e){onboardLocation=null;msg("onmsg","לא הצלחתי לאתר את העיר. נסה GPS או בדוק את שם העיר.",true);$("olocationstate").textContent="עדיין אין נקודת מיקום."}
+}
+function gpsOnboarding(){
+  if(!navigator.geolocation)return msg("onmsg","המכשיר לא תומך במיקום.",true);
+  $("olocationstate").textContent="מבקש מיקום מהמכשיר…";
+  navigator.geolocation.getCurrentPosition(p=>{onboardLocation={lat:p.coords.latitude,lon:p.coords.longitude,source:"gps"};$("olocationstate").innerHTML="✅ המיקום נקלט. אפשר להמשיך.";$("onmsg").classList.add("hidden")},e=>msg("onmsg","לא התקבל מיקום: "+e.message,true),{enableHighAccuracy:true,timeout:10000});
+}
+async function finishOnboarding(){
+  const selected=selectedStarterNeeds();
+  if(!selected.length)return setOnboardStep(3);
+  const products=selected.map(x=>{
+    const q=document.querySelector(`[data-starterqty="${x.key}"]`)?.value;
+    const dim=document.querySelector(`[data-starterdim="${x.key}"]`)?.value||null;
+    const obj={need_key:x.key,dimension_value:dim};
+    if(q!==undefined&&q!=="")obj.quantity=Number(q);
+    return obj;
+  });
+  $("ofinish").disabled=true;$("ofinish").textContent="מכין את הבית…";$("ofinishmsg").classList.add("hidden");
+  const {data,error}=await sb.rpc("create_pilot_household_v031",{
+    p_name:$("ohname").value.trim(),p_city:$("ocity").value.trim(),p_latitude:onboardLocation?.lat??null,p_longitude:onboardLocation?.lon??null,p_radius:Number($("oradius").value),p_products:products
+  });
+  $("ofinish").disabled=false;$("ofinish").textContent="✨ סיימנו, פתח את הבית";
+  if(error)return msg("ofinishmsg","לא הצלחתי להשלים את ההגדרה: "+error.message,true);
+  await route();
+}
+
 async function boot(){let {data}=await sb.auth.getSession();session=data.session;if(!session)return view("auth");await route()}
-async function route(){let {data,error}=await sb.from("household_members").select("household_id,role").limit(1).maybeSingle();if(error)return msg("onmsg",error.message,true);if(!data)return view("onboard");member=data;await loadHouse(data.household_id)}
+async function route(){let {data,error}=await sb.from("household_members").select("household_id,role").limit(1).maybeSingle();if(error)return msg("onmsg",error.message,true);if(!data){view("onboard");initOnboarding();return}member=data;await loadHouse(data.household_id)}
 async function loadHouse(id){let {data,error}=await sb.from("households").select("id,name,city,latitude,longitude,search_radius_km").eq("id",id).single();if(error)return alert(error.message);household=data;$("title").textContent=data.name;updateLocationButton();await loadAll();await invite();subscribe();view("app")}
 
 function defaultInventoryUnit(p){
@@ -396,13 +592,22 @@ async function loadAll(){
 async function invite(){let {data}=await sb.from("household_invites").select("code").eq("household_id",household.id).gt("expires_at",new Date().toISOString()).order("created_at",{ascending:false}).limit(1).maybeSingle();if(!data&&member.role==="owner"){let r=await sb.from("household_invites").insert({household_id:household.id}).select("code").single();data=r.data}$("code").textContent=data?.code||"אין קוד פעיל"}
 function subscribe(){
   if(channel)sb.removeChannel(channel);
-  channel=sb.channel("baby-v030-"+household.id)
+  channel=sb.channel("baby-v031-"+household.id)
     .on("postgres_changes",{event:"*",schema:"public",table:"products",filter:`household_id=eq.${household.id}`},loadAll)
     .on("postgres_changes",{event:"*",schema:"public",table:"product_alternatives",filter:`household_id=eq.${household.id}`},loadAll)
     .subscribe()
 }
 function render(){
   let c={ok:0,low:0,out:0,urgent:0};items.forEach(p=>c[p.stock_status]++);Object.keys(c).forEach(k=>$("c-"+k).textContent=c[k]);$("pcount").textContent=items.length+" צרכים";
+  const attention=c.low+c.out+c.urgent;
+  $("herotitle").textContent=attention?`${attention} ${attention===1?"מוצר דורש":"מוצרים דורשים"} תשומת לב`:"הכול מסודר כרגע 🎉";
+  $("herosub").textContent=attention?"פתח את רשימת הקניות והשווה מחירים קרובים.":"אפשר פשוט להמשיך לעדכן מלאי כשמשהו נגמר.";
+  $("heroaction").textContent=attention?"🛒 פתח קניות":"📦 פתח מלאי";
+  $("heroaction").dataset.target=attention?"shopping":"inventory";
+  $("herotracked").textContent=`📦 ${items.length} מוצרים במעקב`;
+  $("heroradius").textContent=household?`📍 ${household.city||"אזור"} · ${household.search_radius_km||10} ק״מ`:"📍 אזור לא הוגדר";
+  const learning=consumption.filter(x=>Number(x.consumption_events||0)>0).length;
+  $("herolearning").textContent=learning?`📈 לומדים צריכה ב־${learning} מוצרים`:"📈 מתחילים ללמוד צריכה";
   let sh=items.filter(p=>p.stock_status!=="ok").sort((a,b)=>["urgent","out","low"].indexOf(a.stock_status)-["urgent","out","low"].indexOf(b.stock_status));
   $("shopcount").textContent=sh.length+" צרכים";$("emptyshop").classList.toggle("hidden",sh.length>0);
   $("shop").innerHTML=sh.map(p=>{
@@ -427,8 +632,9 @@ function card(p){
   return `<article class="card product">
     <div class="ph"><div><h3>${esc(p.name)}</h3><div class="meta">${esc(p.category)} · ${esc(MODES[p.comparison_mode]||MODES.package)}</div>${dim?`<div class="need-detail">${esc(dim)}</div>`:""}</div><button class="btn" data-edit="${p.id}">✎</button></div>
     <div class="statusline" style="color:${st[2]}">${st[1]} ${st[0]}</div>
-    <div class="statuses">${Object.entries(S).map(([k,v])=>`<button class="sbtn ${p.stock_status===k?"cur":""}" data-id="${p.id}" data-status="${k}" data-s="${k}">${v[1]}<br>${v[0]}</button>`).join("")}</div>
     ${inventoryBox(p)}
+    <div class="status-guide">מצב קנייה</div>
+    <div class="statuses">${Object.entries(S).map(([k,v])=>`<button class="sbtn ${p.stock_status===k?"cur":""}" data-id="${p.id}" data-status="${k}" data-s="${k}">${v[1]}<br>${v[0]}</button>`).join("")}</div>
     ${center}
     ${supported?`<button class="compare-btn" data-compare="${p.id}">🔎 מצא את העסקה הטובה ביותר</button>`:""}
   </article>`
@@ -641,7 +847,7 @@ async function comparePrices(id){
   $("ctitle").textContent="🔎 "+p.name+(p.need_detail?" · "+p.need_detail:"");
   const radiusKm=Number(household?.search_radius_km||10);
   $("csub").textContent=`השוואה בין ${ACTIVE_CHAINS.length} רשתות לפי ${MODES[p.comparison_mode]||MODES.unit}`;
-  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">v0.29: רדיוס אמיתי + בקרת טריות. מחיר ישן מדי מוצג, אבל לא יכול לזכות אוטומטית כזול ביותר.</span>`;
+  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">מחירים מסניפים בטווח שבחרת. מחיר ישן מדי מוצג בשקיפות אך לא מסומן כעסקה הטובה ביותר.</span>`;
   $("cbody").className="loading";$("cbody").innerHTML="מחשב סניפים בטווח וטוען מחירים…";
   $("purchasebox").classList.add("hidden");$("feedbackbox").classList.add("hidden");
   $("cdlg").showModal();
@@ -887,16 +1093,22 @@ async function savePurchase(){
 async function sendFeedback(helpful){
   if(!currentNeed)return;
   const {error}=await sb.from("pilot_feedback").insert({household_id:household.id,product_id:currentNeed.id,helpful});
-  $("feedbackmsg").textContent=error?"לא הצלחתי לשמור פידבק.":"תודה! זה בדיוק המידע שאנחנו צריכים מה־Pilot 🙏";
+  $("feedbackmsg").textContent=error?"לא הצלחתי לשמור פידבק.":"תודה! הפידבק נשמר 🙏";
   if(!error)document.querySelectorAll("#feedbackbox [data-helpful]").forEach(b=>b.disabled=true)
 }
 
 $("login").onclick=async()=>{let {data,error}=await sb.auth.signInWithPassword({email:$("email").value.trim(),password:$("password").value});if(error)return msg("authmsg",error.message,true);session=data.session;route()}
 $("signup").onclick=async()=>{let {data,error}=await sb.auth.signUp({email:$("email").value.trim(),password:$("password").value,options:{emailRedirectTo:location.href.split("#")[0]}});if(error)return msg("authmsg",error.message,true);if(data.session){session=data.session;route()}else msg("authmsg","החשבון נוצר. בדוק את האימייל ואשר את ההרשמה, ואז התחבר.")}
-$("newbtn").onclick=()=>{$("newbox").classList.remove("hidden");$("joinbox").classList.add("hidden")};$("joinbtn").onclick=()=>{$("joinbox").classList.remove("hidden");$("newbox").classList.add("hidden")}
-$("create").onclick=async()=>{let {error}=await sb.from("households").insert({name:$("hname").value.trim()||"המלאי של התינוק",created_by:session.user.id});if(error)return msg("onmsg",error.message,true);route()}
-$("join").onclick=async()=>{let {error}=await sb.from("household_join_requests").insert({invite_code:$("joincode").value.trim(),user_id:session.user.id});if(error)return msg("onmsg","קוד שגוי או שפג תוקפו.",true);route()}
+$("onext1").onclick=()=>{if(!$("ohname").value.trim())return alert("כתוב שם למלאי המשפחתי.");setOnboardStep(2)};
+$("onext2").onclick=()=>{if(!$("ocity").value.trim())return msg("onmsg","כתוב עיר.",true);if(!onboardLocation)return msg("onmsg","בחר מרכז עיר או GPS לפני שממשיכים.",true);setOnboardStep(3)};
+$("onext3").onclick=()=>{const chosen=selectedStarterNeeds();if(!chosen.length)return alert("בחר לפחות מוצר אחד למעקב.");chosen.forEach(x=>x.selected=true);STARTER_NEEDS.forEach(x=>{if(!chosen.some(c=>c.key===x.key))x.selected=false});setOnboardStep(4)};
+document.querySelectorAll("[data-oback]").forEach(b=>b.onclick=()=>setOnboardStep(Number(b.dataset.oback)));
+$("ocitycenter").onclick=geocodeOnboardCity;$("ogps").onclick=gpsOnboarding;$("ofinish").onclick=finishOnboarding;
+$("oshowjoin").onclick=()=>{[1,2,3,4].forEach(i=>$("ostep"+i).classList.add("hidden"));$("ostepper").classList.add("hidden");$("ojoinpanel").classList.remove("hidden")};
+$("ojoinback").onclick=()=>setOnboardStep(1);
+$("ojoin").onclick=async()=>{let {error}=await sb.from("household_join_requests").insert({invite_code:$("ojoincode").value.trim(),user_id:session.user.id});if(error)return msg("ojoinmsg","קוד שגוי או שפג תוקפו.",true);msg("ojoinmsg","הבקשה נקלטה. אם הקוד תקין, המלאי ייפתח מיד.");setTimeout(route,500)};
 $("outsimple").onclick=async()=>{await sb.auth.signOut();location.reload()};$("logout").onclick=async()=>{await sb.auth.signOut();location.reload()}
+$("heroaction").onclick=()=>{const target=$("heroaction").dataset.target;if(target==="shopping")document.querySelector("#shop")?.scrollIntoView({behavior:"smooth",block:"center"});else document.querySelector("#products")?.scrollIntoView({behavior:"smooth",block:"start"})};
 $("filters").onclick=e=>{let b=e.target.closest("[data-f]");if(!b)return;filter=b.dataset.f;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("active",x===b));render()}
 $("products").onclick=e=>{
   let dec=e.target.closest("[data-invdec]");if(dec)return changeInventory(dec.dataset.invdec,-1);
