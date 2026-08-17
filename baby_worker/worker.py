@@ -229,6 +229,98 @@ def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _norm_place(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").replace("\u200e", "").replace("\u200f", "").strip().lower())
+
+_BRANCH_PREFIXES = (
+    "שופרסל דיל ", "שופרסל שלי ", "שופרסל ", "יוחננוף ", "רמי לוי ",
+    "אקספרס ", "סניף ", "דיל ", "שלי ", "be ",
+)
+
+def _branch_name_core(value: Any) -> str:
+    name = _norm_place(value)
+    changed = True
+    while changed:
+        changed = False
+        for prefix in _BRANCH_PREFIXES:
+            if name.startswith(prefix):
+                name = name[len(prefix):].strip(" -–—")
+                changed = True
+                break
+    return name
+
+def _strong_branch_city_match(branch_name: Any, city: Any) -> bool:
+    wanted = _norm_place(city)
+    core = _branch_name_core(branch_name)
+    if not wanted or not core:
+        return False
+    return core == wanted or core.startswith(wanted + " ") or core.startswith(wanted + "-") or core.startswith(wanted + "–") or core.startswith(wanted + "—")
+
+def _is_numeric_city(value: Any) -> bool:
+    return bool(re.fullmatch(r"\d+", _norm_place(value)))
+
+def build_target_branch_plan(db: SupabaseREST | None) -> dict[str, Any]:
+    empty = {"cities": [], "locality_codes": {}, "targets": {}, "known_branch_counts": {}, "diagnostics": []}
+    if db is None:
+        return empty
+    try:
+        households = db.select("households", {"select": "id,city,search_radius_km", "city": "not.is.null"})
+        branches = db.select("retail_branches", {"select": "chain_id,branch_code,branch_name,city,address", "active": "eq.true"})
+    except Exception as exc:
+        return {**empty, "diagnostics": [f"planner read failed: {type(exc).__name__}: {exc}"]}
+
+    cities=[]
+    for h in households:
+        c=str(h.get("city") or "").strip()
+        if c and c not in cities: cities.append(c)
+
+    known=defaultdict(int)
+    for b in branches:
+        if b.get("chain_id"): known[str(b["chain_id"])]+=1
+
+    targets=defaultdict(set)
+    locality_codes={}
+    diagnostics=[]
+    for city in cities:
+        strong=[b for b in branches if _strong_branch_city_match(b.get("branch_name"), city)]
+        score=defaultdict(set)
+        for b in strong:
+            c=_norm_place(b.get("city"))
+            if c and c != "0" and _is_numeric_city(c):
+                score[c].add(str(b.get("chain_id") or ""))
+        selected=[]
+        if score:
+            max_support=max(len(v) for v in score.values())
+            selected=sorted(k for k,v in score.items() if len(v)==max_support)
+        locality_codes[city]=selected
+        for b in branches:
+            chain=str(b.get("chain_id") or "")
+            code=str(b.get("branch_code") or "")
+            if not chain or not code: continue
+            bc=_norm_place(b.get("city"))
+            textual=bool(bc) and not _is_numeric_city(bc) and bc==_norm_place(city)
+            numeric=bool(selected) and bc in selected
+            named=_strong_branch_city_match(b.get("branch_name"), city)
+            if named or textual or numeric: targets[chain].add(code)
+        diagnostics.append(f"{city}: strong={len(strong)} codes={selected or '-'}")
+    return {
+        "cities": cities,
+        "locality_codes": locality_codes,
+        "targets": {k: sorted(v) for k,v in targets.items()},
+        "known_branch_counts": dict(known),
+        "diagnostics": diagnostics[:20],
+    }
+
+def _target_codes(plan: dict[str, Any] | None, chain_id: str) -> set[str]:
+    return {str(x) for x in (plan or {}).get("targets", {}).get(chain_id, []) if str(x)}
+
+def _filter_price_pass_to_branches(p: dict[str, Any], target_codes: set[str]) -> dict[str, Any]:
+    if not target_codes: return p
+    before=list(p.get("price_rows", []))
+    p["price_rows"]=[r for r in before if str(r.get("branch_code") or "") in target_codes]
+    p["target_filter"]={"targets": sorted(target_codes), "rows_before": len(before), "rows_after": len(p["price_rows"])}
+    return p
+
 
 SP_BASE_URL = "https://prices.super-pharm.co.il/"
 SP_DOWNLOAD_BUCKET = "sp_transparency_output_prod_v2"
@@ -714,6 +806,7 @@ def _collect_superpharm_official(
             pass_name="full_bootstrap",
             file_type="PRICE_FULL_FILE",
             limit=full_limit,
+            target_codes=target_codes,
         )
         incremental_pass = _download_sp_pass(
             session,
@@ -721,6 +814,7 @@ def _collect_superpharm_official(
             pass_name="incremental",
             file_type="PRICE_FILE",
             limit=incremental_limit,
+            target_codes=target_codes,
         )
 
         scan_errors = (
@@ -841,9 +935,11 @@ def _download_be_price_pass(
     pass_name: str,
     file_type: str,
     limit: int,
+    target_codes: set[str] | None = None,
 ) -> dict[str, Any]:
     result = _empty_direct_pass(pass_name, file_type, limit)
-    selected = _newest_per_branch(links)[:limit]
+    newest = _newest_per_branch(links)
+    selected = ([x for x in newest if x["branch_code"] in target_codes] if target_codes else newest[:limit])
 
     for item in selected:
         try:
@@ -881,13 +977,14 @@ def _collect_be_official(
     full_limit: int,
     incremental_limit: int,
     max_pages: int,
+    target_codes: set[str] | None = None,
     session: requests.Session | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Find and download Be (subchain 005) files directly from the official index."""
     owns_session = session is None
     session = session or requests.Session()
     session.headers.update({
-        "User-Agent": "baby-price-worker/0.20 (+price-transparency)",
+        "User-Agent": "baby-price-worker/0.23 (+price-transparency)",
         "Accept": "text/html,application/xhtml+xml,*/*",
     })
 
@@ -920,7 +1017,11 @@ def _collect_be_official(
                     elif item["kind"] == "price":
                         incremental_links.append(item)
 
-                if (
+                if target_codes:
+                    found = {x["branch_code"] for x in _newest_per_branch(full_links)}
+                    if target_codes.issubset(found):
+                        break
+                elif (
                     len(_newest_per_branch(full_links)) >= full_limit
                     and len(_newest_per_branch(incremental_links)) >= incremental_limit
                 ):
@@ -948,6 +1049,7 @@ def _collect_be_official(
 
         stats = {
             "subchain_id": BE_SUBCHAIN,
+            "target_branches": sorted(target_codes or []),
             "pages_scanned": pages_scanned,
             "index_errors": scan_errors[:5],
             "full_links_found": len(_newest_per_branch(full_links)),
@@ -962,6 +1064,69 @@ def _collect_be_official(
     finally:
         if owns_session:
             session.close()
+
+
+SHUF1_SUBCHAIN = "001"
+SHUF1_FILE_RE = re.compile(
+    r"^(?P<kind>PriceFull|Price)7290027600007-001-(?P<branch>\d+)-(?P<timestamp>\d{8}-\d{6})\.gz$",
+    re.I,
+)
+
+def _shuf1_links_from_html(page_html: str) -> list[dict[str, str]]:
+    out=[]; seen=set()
+    for href in re.findall(r"href\s*=\s*[\"']([^\"']+)[\"']", page_html or "", re.I):
+        url=html.unescape(href)
+        name=unquote(urlparse(url).path).rsplit("/",1)[-1]
+        m=SHUF1_FILE_RE.match(name)
+        if not m or url in seen: continue
+        seen.add(url)
+        out.append({"url":url,"file_name":name,"kind":"price_full" if m.group("kind").lower()=="pricefull" else "price","branch_code":m.group("branch"),"timestamp":m.group("timestamp")})
+    return out
+
+def _download_shuf1_price_pass(session, links, *, pass_name, file_type, limit, target_codes: set[str] | None = None):
+    result=_empty_direct_pass(pass_name,file_type,limit)
+    newest=_newest_per_branch(links)
+    selected=([x for x in newest if x["branch_code"] in target_codes] if target_codes else newest[:limit])
+    for item in selected:
+        try:
+            response=session.get(item["url"],timeout=45); response.raise_for_status()
+            payload=response.content
+            if payload[:2]==b"\x1f\x8b": payload=gzip.decompress(payload)
+            xml_name=item["file_name"][:-3]+".xml"
+            parsed=parse_price_rows(payload,"SHUFERSAL",xml_name)
+            for row in parsed: row["subchain_id"]=SHUF1_SUBCHAIN
+            result["price_rows"].extend(parsed); result["files_seen"]+=1
+            result["kind_counts"][item["kind"]]=result["kind_counts"].get(item["kind"],0)+1
+            if len(result["sample_files"])<12: result["sample_files"].append(xml_name)
+        except Exception as exc:
+            result["errors"].append(f'{item["file_name"]}: {type(exc).__name__}: {exc}')
+    result["target_filter"]={"targets":sorted(target_codes or []),"selected_files":[x["file_name"] for x in selected]}
+    return result
+
+def _collect_shuf1_official(*, full_limit:int, incremental_limit:int, max_pages:int, target_codes:set[str] | None=None, session:requests.Session | None=None):
+    owns=session is None; session=session or requests.Session()
+    session.headers.update({"User-Agent":"baby-price-worker/0.23 (+targeted-branches)","Accept":"text/html,application/xhtml+xml,*/*"})
+    full=[]; inc=[]; errors=[]; pages=0
+    try:
+        for page in range(1,max_pages+1):
+            try:
+                r=session.get(BE_INDEX_URL,params={"catID":0,"page":page,"sort":"Branch","sortdir":"ASC","storeId":0},timeout=30); r.raise_for_status(); pages+=1
+                for item in _shuf1_links_from_html(r.text):
+                    (full if item["kind"]=="price_full" else inc).append(item)
+                if target_codes:
+                    found={x["branch_code"] for x in _newest_per_branch(full)}
+                    if target_codes.issubset(found): break
+                elif len(_newest_per_branch(full))>=full_limit and len(_newest_per_branch(inc))>=incremental_limit: break
+            except Exception as exc:
+                errors.append(f"index page {page}: {type(exc).__name__}: {exc}")
+                if len(errors)>=5: break
+        fp=_download_shuf1_price_pass(session,full,pass_name="shufersal_target_full",file_type="PRICE_FULL_FILE",limit=full_limit,target_codes=target_codes)
+        ip=_download_shuf1_price_pass(session,inc,pass_name="shufersal_target_incremental",file_type="PRICE_FILE",limit=incremental_limit,target_codes=target_codes)
+        fp["errors"]=errors+fp["errors"]
+        stats={"subchain_id":SHUF1_SUBCHAIN,"target_branches":sorted(target_codes or []),"pages_scanned":pages,"index_errors":errors[:5],"full_links_found":len(_newest_per_branch(full)),"full_files_seen":fp["files_seen"],"full_baby_rows":len(fp["price_rows"]),"incremental_files_seen":ip["files_seen"],"incremental_baby_rows":len(ip["price_rows"])}
+        return [fp,ip],stats
+    finally:
+        if owns: session.close()
 
 
 async def _collect_scraper_pass(
@@ -1130,7 +1295,9 @@ def _merge_source_passes(
 
 
 async def collect_source(
-    scraper_name: str, file_limit: int | None
+    scraper_name: str,
+    file_limit: int | None,
+    target_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Collect retailer data with a chain-specific source strategy."""
 
@@ -1180,7 +1347,11 @@ async def collect_source(
             pass_name="stores",
         )
 
+        yoh_targets = _target_codes(target_plan, "yochananof")
+        known_yoh = int((target_plan or {}).get("known_branch_counts", {}).get("yochananof", 0) or 0)
         full_limit_default = file_limit if file_limit is not None else 20
+        if yoh_targets and known_yoh:
+            full_limit_default = max(full_limit_default, known_yoh)
         full_limit = int(
             os.environ.get(
                 "YOHANANOF_FULL_FILE_LIMIT",
@@ -1211,6 +1382,10 @@ async def collect_source(
             collect_schema_diagnostics=not bool(full_pass["price_rows"]),
         )
 
+        if yoh_targets:
+            full_pass = _filter_price_pass_to_branches(full_pass, yoh_targets)
+            incremental_pass = _filter_price_pass_to_branches(incremental_pass, yoh_targets)
+
         data = _merge_source_passes(
             scraper_name,
             file_limit,
@@ -1222,6 +1397,8 @@ async def collect_source(
             "incremental": incremental_limit,
         }
         data["yohananof_bootstrap"] = {
+            "target_branches": sorted(yoh_targets),
+            "known_branch_count": known_yoh,
             "stores_files_seen": stores_pass["files_seen"],
             "stores_rows": len(stores_pass["store_rows"]),
             "full_files_seen": full_pass["files_seen"],
@@ -1234,61 +1411,24 @@ async def collect_source(
 
     if scraper_name == "SHUFERSAL":
         stores_pass = await _collect_scraper_pass(
-            scraper_name,
-            file_types=["STORE_FILE"],
-            limit=1,
-            pass_name="stores",
+            scraper_name, file_types=["STORE_FILE"], limit=1, pass_name="stores"
         )
+        shuf_targets = _target_codes(target_plan, "shufersal")
+        be_targets = _target_codes(target_plan, "be")
+        fallback = max(1, file_limit or 20)
+        max_pages = int(os.environ.get("SHUFERSAL_TARGET_INDEX_MAX_PAGES", "100"))
 
-        full_limit_default = file_limit if file_limit is not None else 20
-        full_limit = int(os.environ.get("SHUFERSAL_FULL_FILE_LIMIT", str(max(1, full_limit_default))))
-        incremental_limit_default = file_limit if file_limit is not None else 20
-        incremental_limit = int(os.environ.get("SHUFERSAL_INCREMENTAL_FILE_LIMIT", str(max(1, incremental_limit_default))))
-
-        full_pass = await _collect_scraper_pass(
-            scraper_name,
-            file_types=["PRICE_FULL_FILE"],
-            limit=full_limit,
-            pass_name="full_bootstrap",
-            collect_schema_diagnostics=True,
+        shuf_passes, shuf_stats = _collect_shuf1_official(
+            full_limit=fallback, incremental_limit=fallback, max_pages=max_pages, target_codes=shuf_targets or None
         )
-        incremental_pass = await _collect_scraper_pass(
-            scraper_name,
-            file_types=["PRICE_FILE"],
-            limit=incremental_limit,
-            pass_name="incremental",
-            collect_schema_diagnostics=not bool(full_pass["price_rows"]),
-        )
-
-        be_full_default = file_limit if file_limit is not None else 20
-        be_full_limit = int(os.environ.get("BE_FULL_FILE_LIMIT", str(max(1, be_full_default))))
-        be_inc_default = file_limit if file_limit is not None else 20
-        be_incremental_limit = int(os.environ.get("BE_INCREMENTAL_FILE_LIMIT", str(max(1, be_inc_default))))
-        be_max_pages = int(os.environ.get("BE_INDEX_MAX_PAGES", "100"))
-
         be_passes, be_stats = _collect_be_official(
-            full_limit=be_full_limit,
-            incremental_limit=be_incremental_limit,
-            max_pages=be_max_pages,
+            full_limit=fallback, incremental_limit=fallback, max_pages=max_pages, target_codes=be_targets or None
         )
-
-        all_passes = [stores_pass, full_pass, incremental_pass, *be_passes]
-        data = _merge_source_passes(scraper_name, file_limit, all_passes)
-        data["scrape_file_limit"] = {
-            "stores": 1,
-            "shufersal_full": full_limit,
-            "shufersal_incremental": incremental_limit,
-            "be_full": be_full_limit,
-            "be_incremental": be_incremental_limit,
-        }
-        data["shufersal_bootstrap"] = {
-            "full_files_seen": full_pass["files_seen"],
-            "full_baby_rows": len(full_pass["price_rows"]),
-            "incremental_files_seen": incremental_pass["files_seen"],
-            "incremental_baby_rows": len(incremental_pass["price_rows"]),
-            "full_snapshot_found": full_pass["files_seen"] > 0,
-        }
-        data["be_bootstrap"] = be_stats
+        data = _merge_source_passes(scraper_name, file_limit, [stores_pass] + shuf_passes + be_passes)
+        data["scrape_file_limit"] = {"stores":1,"targeted":True,"fallback":fallback,"index_max_pages":max_pages}
+        data["shufersal_bootstrap"] = {**shuf_stats, "targeted": bool(shuf_targets)}
+        data["be_bootstrap"] = {**be_stats, "targeted": bool(be_targets)}
+        data["targeted_branch_coverage"] = {"shufersal":shuf_stats,"be":be_stats}
         return data
 
     if scraper_name == "RAMI_LEVY":
@@ -1325,8 +1465,11 @@ async def collect_source(
             "mixed": base_limit,
         }
         data["rami_levy_location"] = {
+            "target_branches_from_metadata": sorted(_target_codes(target_plan, "rami_levy")),
             "stores_files_seen": stores_pass["files_seen"],
             "stores_rows": len(stores_pass["store_rows"]),
+            "price_coverage_mode": "broad",
+            "mapping_status": "pending_reliable_branch_code_location_map",
         }
         return data
 
@@ -1348,7 +1491,7 @@ async def collect_source(
     data["scrape_file_limit"] = file_limit
     return data
 
-async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None, enricher: MetadataEnricher | None = None):
+async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None, enricher: MetadataEnricher | None = None, target_plan: dict[str, Any] | None = None):
     source_db_name = SCRAPER_TO_DB[scraper_name]
     run_id = None
     if db and not dry_run:
@@ -1360,7 +1503,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         run_id = run.get("id")
 
     try:
-        data = await collect_source(scraper_name, file_limit)
+        data = await collect_source(scraper_name, file_limit, target_plan)
         merged = merge_prices_and_promos(data["price_rows"], data["promo_rows"])
         prices = [to_db_price(x) for x in merged]
 
@@ -1436,6 +1579,8 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "be_bootstrap": data.get("be_bootstrap"),
                         "super_pharm_bootstrap": data.get("super_pharm_bootstrap"),
                         "rami_levy_location": data.get("rami_levy_location"),
+                        "targeted_branch_coverage": data.get("targeted_branch_coverage"),
+                        "target_branch_plan": target_plan,
                         "metadata_enrichment": enrichment_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
@@ -1486,8 +1631,10 @@ async def async_main(args):
             api_key=os.environ.get("CHEAPERSAL_API_KEY", ""),
             limit=int(os.environ.get("ENRICHMENT_LIMIT", "8")),
         )
+    target_plan = build_target_branch_plan(db)
+    print("📍 target branch plan: " + json.dumps(target_plan, ensure_ascii=False))
     for scraper_name in scraper_names:
-        await run_chain(scraper_name, db, args.dry_run, args.file_limit, enricher)
+        await run_chain(scraper_name, db, args.dry_run, args.file_limit, enricher, target_plan)
 
 def main():
     parser = argparse.ArgumentParser(description="Baby price-transparency worker")
