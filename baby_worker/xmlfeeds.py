@@ -438,21 +438,62 @@ def file_kind(file_name: str) -> str:
         return "price"
     return "unknown"
 
+STORE_NAME_KEYS = (
+    "StoreName", "BranchName", "StoreDescription", "BranchDescription",
+    "Description", "Name"
+)
+CITY_STORE_KEYS = (
+    "City", "CityName", "CityCode", "SettlementCode", "SettlementId",
+    "Town", "TownName"
+)
+ADDRESS_STORE_KEYS = (
+    "Address", "StoreAddress", "BranchAddress", "StreetAddress",
+    "AddressDescription"
+)
+
+
+def _store_map_from_subtree(el: ET.Element) -> dict[str, str]:
+    """Collect simple fields from a small store subtree, including attributes.
+
+    Stores files vary more than price files between retailers: some keep
+    StoreId / StoreName / City directly on one node, while others wrap those
+    fields one level deeper. We merge only leaf fields from the subtree.
+    """
+    out: dict[str, str] = {}
+
+    for node in el.iter():
+        for ak, av in node.attrib.items():
+            value = str(av).strip()
+            if value:
+                out.setdefault(local(ak), value)
+
+        if len(list(node)) == 0:
+            value = (node.text or "").strip()
+            if value:
+                out.setdefault(local(node.tag), value)
+
+    return out
+
+
 def parse_stores(content: bytes, source_name: str, file_name: str) -> list[dict[str, Any]]:
     root = parse_root(content)
     rows: list[dict[str, Any]] = []
     fallback_subchain, _ = branch_from_filename(file_name)
+
+    # Fast path: direct fields / attributes on the same node.
     for el in root.iter():
         d = child_map(el)
         store = first(d, STORE_KEYS)
         if not store:
             continue
-        # Avoid treating root/header nodes as a store unless they have some store details.
-        branch_name = first(d, ("StoreName", "BranchName", "Name"))
-        city = first(d, ("City", "CityName"))
-        address = first(d, ("Address", "StoreAddress"))
+
+        branch_name = first(d, STORE_NAME_KEYS)
+        city = first(d, CITY_STORE_KEYS)
+        address = first(d, ADDRESS_STORE_KEYS)
+
         if not any([branch_name, city, address]):
             continue
+
         subchain = first(d, SUBCHAIN_KEYS) or fallback_subchain
         rows.append({
             "source_name": source_name,
@@ -462,6 +503,32 @@ def parse_stores(content: bytes, source_name: str, file_name: str) -> list[dict[
             "city": city,
             "address": address,
         })
+
+    # Fallback: find the smallest subtrees that contain a StoreId and at least
+    # one useful location/name field. This helps PublishedPrices variations.
+    if len(rows) < 5:
+        for el in root.iter():
+            d = _store_map_from_subtree(el)
+            store = first(d, STORE_KEYS)
+            if not store:
+                continue
+
+            branch_name = first(d, STORE_NAME_KEYS)
+            city = first(d, CITY_STORE_KEYS)
+            address = first(d, ADDRESS_STORE_KEYS)
+            if not any([branch_name, city, address]):
+                continue
+
+            subchain = first(d, SUBCHAIN_KEYS) or fallback_subchain
+            rows.append({
+                "source_name": source_name,
+                "branch_code": str(store),
+                "subchain_id": str(subchain) if subchain else None,
+                "branch_name": branch_name,
+                "city": city,
+                "address": address,
+            })
+
     return dedupe(rows, ("source_name", "branch_code"))
 
 def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[dict[str, Any]]:

@@ -1173,6 +1173,13 @@ async def collect_source(
         return data
 
     if scraper_name == "YOHANANOF":
+        stores_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["STORE_FILE"],
+            limit=1,
+            pass_name="stores",
+        )
+
         full_limit_default = file_limit if file_limit is not None else 20
         full_limit = int(
             os.environ.get(
@@ -1207,13 +1214,16 @@ async def collect_source(
         data = _merge_source_passes(
             scraper_name,
             file_limit,
-            [full_pass, incremental_pass],
+            [stores_pass, full_pass, incremental_pass],
         )
         data["scrape_file_limit"] = {
+            "stores": 1,
             "full": full_limit,
             "incremental": incremental_limit,
         }
         data["yohananof_bootstrap"] = {
+            "stores_files_seen": stores_pass["files_seen"],
+            "stores_rows": len(stores_pass["store_rows"]),
             "full_files_seen": full_pass["files_seen"],
             "full_baby_rows": len(full_pass["price_rows"]),
             "incremental_files_seen": incremental_pass["files_seen"],
@@ -1282,6 +1292,13 @@ async def collect_source(
         return data
 
     if scraper_name == "RAMI_LEVY":
+        stores_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["STORE_FILE"],
+            limit=1,
+            pass_name="stores",
+        )
+
         base_limit = file_limit
         if file_limit is not None:
             min_files = int(
@@ -1292,7 +1309,6 @@ async def collect_source(
         mixed_pass = await _collect_scraper_pass(
             scraper_name,
             file_types=[
-                "STORE_FILE",
                 "PRICE_FILE",
                 "PRICE_FULL_FILE",
                 "PROMO_FILE",
@@ -1302,9 +1318,16 @@ async def collect_source(
             pass_name="mixed",
         )
         data = _merge_source_passes(
-            scraper_name, file_limit, [mixed_pass]
+            scraper_name, file_limit, [stores_pass, mixed_pass]
         )
-        data["scrape_file_limit"] = base_limit
+        data["scrape_file_limit"] = {
+            "stores": 1,
+            "mixed": base_limit,
+        }
+        data["rami_levy_location"] = {
+            "stores_files_seen": stores_pass["files_seen"],
+            "stores_rows": len(stores_pass["store_rows"]),
+        }
         return data
 
     broad_pass = await _collect_scraper_pass(
@@ -1412,6 +1435,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "shufersal_bootstrap": data.get("shufersal_bootstrap"),
                         "be_bootstrap": data.get("be_bootstrap"),
                         "super_pharm_bootstrap": data.get("super_pharm_bootstrap"),
+                        "rami_levy_location": data.get("rami_levy_location"),
                         "metadata_enrichment": enrichment_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
