@@ -4,9 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Maximum missing branches to geocode in this run"
+        description: "Maximum branches to process"
         required: true
-        default: "120"
+        default: "40"
+      repair_suspicious:
+        description: "Audit/reset suspicious duplicate coordinates before geocoding"
+        required: true
+        type: choice
+        options: ["false", "true"]
+        default: "false"
+      repair_dry_run:
+        description: "If repair=true, only report suspects without clearing them"
+        required: true
+        type: choice
+        options: ["false", "true"]
+        default: "false"
 
 concurrency:
   group: baby-retail-branch-geocoding
@@ -15,22 +27,29 @@ concurrency:
 jobs:
   geocode:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Geocode missing branch coordinates
+      - name: Precision geocode branch coordinates
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEOCODE_LIMIT: ${{ inputs.limit }}
           GEOCODE_SLEEP_SECONDS: "1.1"
-          NOMINATIM_USER_AGENT: "BabyShoppingPilot/0.28 (+https://github.com/haimboch/Baby-shopping-list)"
-        run: python geocode_branches.py --limit "$GEOCODE_LIMIT"
+          GEOCODE_MIN_SCORE: "7"
+          NOMINATIM_USER_AGENT: "BabyShoppingPilot/0.28.2 (+https://github.com/haimboch/Baby-shopping-list)"
+        shell: bash
+        run: |
+          ARGS=(--limit "$GEOCODE_LIMIT")
+          if [ "${{ inputs.repair_suspicious }}" = "true" ]; then
+            ARGS+=(--repair-suspicious)
+          fi
+          if [ "${{ inputs.repair_dry_run }}" = "true" ]; then
+            ARGS+=(--repair-dry-run)
+          fi
+          python geocode_branches.py "${ARGS[@]}"
