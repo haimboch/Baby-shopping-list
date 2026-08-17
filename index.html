@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#6557e8">
-<title>Baby Smart List · Pilot v0.28</title>
+<title>Baby Smart List · Pilot v0.29</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -40,6 +40,13 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 .formula-warning{margin-top:9px;padding:9px;border-radius:11px;background:#fff8ee;border:1px solid #f0d6ad;color:#7a5522;font-size:.78rem}
 .chain-tag{display:inline-flex;border-radius:999px;padding:3px 7px;background:#f2f4f7;color:#4a5061;font-size:.7rem;font-weight:800;margin-top:4px}
 .data-fresh{font-size:.68rem;color:var(--muted);margin-top:5px}
+.freshness-badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 7px;font-size:.66rem;font-weight:800;margin-top:5px}
+.freshness-fresh{background:#dcfce7;color:#166534}
+.freshness-aging{background:#fef3c7;color:#92400e}
+.freshness-stale{background:#fee2e2;color:#991b1b}
+.freshness-unknown{background:#f1f5f9;color:#475569}
+.stale-card{opacity:.82}
+.freshness-note{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:9px 10px;margin:8px 0;font-size:.78rem;line-height:1.5}
 .result-list{display:grid;gap:9px;margin-top:12px}.result-card{border:1px solid var(--line);border-radius:14px;padding:12px}.result-card.best{border:2px solid #68bda0;background:#f5fffb}
 .result-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.price{font-size:1.28rem;font-weight:900}.unit-price{font-size:.8rem;color:var(--muted);margin-top:2px}
 .promo{display:inline-block;background:#fff1f3;color:#b33149;border-radius:999px;padding:4px 7px;font-size:.7rem;font-weight:800;margin-top:5px}
@@ -78,7 +85,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 <div>
   <div class="brand"><div class="logo">🛒</div><div><h1 id="title">המלאי של התינוק</h1><div class="sub">מה חסר בבית, איפה הכי משתלם לקנות</div></div></div>
   <div class="sync">● מסונכרן בזמן אמת</div>
-  <div class="pilot-badge">📍 v0.28 · Dynamic Radius · GPS + מרחק אמיתי</div>
+  <div class="pilot-badge">🕒 v0.29 · Price Freshness · עדכון אוטומטי + בקרת טריות</div>
   <div class="chain-strip" aria-label="רשתות פעילות">
     <span>רמי לוי</span><span>יוחננוף</span><span>שופרסל</span><span>Be</span>
   </div>
@@ -450,8 +457,45 @@ function cleanPilotCandidate(r,p){
   if(p.need_key==="formula" && /(מחית|מחיות|צידנית|baby\s*food|puree|דייס)/i.test(name))return false;
   return true;
 }
+
+const PRICE_FRESH_HOURS=12;
+const PRICE_STALE_HOURS=36;
+
+function priceFreshnessTimestamp(r){
+  return r?.source_updated_at||r?.last_seen_at||null;
+}
+function relativeAgeLabel(ageHours){
+  if(!Number.isFinite(ageHours))return "זמן עדכון לא ידוע";
+  if(ageHours<1)return "עודכן לפני פחות משעה";
+  if(ageHours<2)return "עודכן לפני כשעה";
+  if(ageHours<24)return `עודכן לפני ${Math.floor(ageHours)} שעות`;
+  const days=Math.floor(ageHours/24);
+  if(days===1)return "עודכן לפני יום";
+  return `עודכן לפני ${days} ימים`;
+}
+function priceFreshness(r){
+  const raw=priceFreshnessTimestamp(r);
+  if(!raw)return {status:"unknown",eligible:false,age_hours:Infinity,label:"זמן עדכון לא ידוע",css:"freshness-unknown"};
+  const t=new Date(raw).getTime();
+  if(!Number.isFinite(t))return {status:"unknown",eligible:false,age_hours:Infinity,label:"זמן עדכון לא ידוע",css:"freshness-unknown"};
+  const age=Math.max(0,(Date.now()-t)/36e5);
+  if(age<=PRICE_FRESH_HOURS){
+    return {status:"fresh",eligible:true,age_hours:age,label:"✅ "+relativeAgeLabel(age),css:"freshness-fresh"};
+  }
+  if(age<=PRICE_STALE_HOURS){
+    return {status:"aging",eligible:true,age_hours:age,label:"🟡 "+relativeAgeLabel(age),css:"freshness-aging"};
+  }
+  return {status:"stale",eligible:false,age_hours:age,label:"⚠️ "+relativeAgeLabel(age)+" · ישן מדי לזכייה",css:"freshness-stale"};
+}
+function freshnessRank(r){
+  if(r?.freshness_status==="fresh")return 0;
+  if(r?.freshness_status==="aging")return 1;
+  return 2;
+}
+
 function directQuote(r,p){
   const branch=r.branch_name||`סניף ${r.branch_code}`;
+  const freshness=priceFreshness(r);
   return {
     chain_id:r.chain_id,
     chain:CHAIN_LABELS[r.chain_id]||r.chain_id,
@@ -472,6 +516,12 @@ function directQuote(r,p){
     normalized_unit_label:r.normalized_unit_label||scoreLabel(p.comparison_mode),
     preferred:!!p.preferred_barcode&&String(r.barcode)===String(p.preferred_barcode),
     source_updated_at:r.source_updated_at,
+    last_seen_at:r.last_seen_at,
+    freshness_status:freshness.status,
+    freshness_eligible:freshness.eligible,
+    freshness_age_hours:freshness.age_hours,
+    freshness_label:freshness.label,
+    freshness_css:freshness.css,
     is_promotion:false,
     requires_club:false,
     alternative_id:null
@@ -493,7 +543,7 @@ async function comparePrices(id){
   $("ctitle").textContent="🔎 "+p.name+(p.need_detail?" · "+p.need_detail:"");
   const radiusKm=Number(household?.search_radius_km||10);
   $("csub").textContent=`השוואה בין ${ACTIVE_CHAINS.length} רשתות לפי ${MODES[p.comparison_mode]||MODES.unit}`;
-  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">v0.28: הסינון מחושב לפי קואורדינטות ומרחק אווירי אמיתי בין נקודת המרכז לסניף.</span>`;
+  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">v0.29: רדיוס אמיתי + בקרת טריות. מחיר ישן מדי מוצג, אבל לא יכול לזכות אוטומטית כזול ביותר.</span>`;
   $("cbody").className="loading";$("cbody").innerHTML="מחשב סניפים בטווח וטוען מחירים…";
   $("purchasebox").classList.add("hidden");$("feedbackbox").classList.add("hidden");
   $("cdlg").showModal();
@@ -531,7 +581,7 @@ async function comparePrices(id){
   }
 
   let q=sb.from("baby_normalized_prices")
-    .select("chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,effective_price,canonical_package_quantity,canonical_package_unit,normalized_unit_price,normalized_unit_label,quantity_source,source_updated_at")
+    .select("chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,effective_price,canonical_package_quantity,canonical_package_unit,normalized_unit_price,normalized_unit_label,quantity_source,source_updated_at,last_seen_at")
     .eq("need_key",p.need_key)
     .in("chain_id",ACTIVE_CHAINS)
     .in("branch_code",localCodes)
@@ -559,7 +609,18 @@ async function comparePrices(id){
   results.forEach(r=>{
     const k=`${r.chain_id}|${r.barcode}`;
     const old=localBest.get(k);
-    if(!old||r.score<old.score||(r.score===old.score&&r.effective_price<old.effective_price)||(r.score===old.score&&r.effective_price===old.effective_price&&(r.distance_km??999)<(old.distance_km??999))){
+    if(
+      !old
+      || freshnessRank(r)<freshnessRank(old)
+      || (
+        freshnessRank(r)===freshnessRank(old)
+        && (
+          r.score<old.score
+          || (r.score===old.score&&r.effective_price<old.effective_price)
+          || (r.score===old.score&&r.effective_price===old.effective_price&&(r.distance_km??999)<(old.distance_km??999))
+        )
+      )
+    ){
       localBest.set(k,r);
     }
   });
@@ -570,13 +631,19 @@ async function comparePrices(id){
   results.forEach(r=>{
     const k=`${r.chain_id}|${r.barcode}`;
     const old=dedup.get(k);
-    if(!old||r.score<old.score)dedup.set(k,r);
+    if(!old||freshnessRank(r)<freshnessRank(old)||(freshnessRank(r)===freshnessRank(old)&&r.score<old.score))dedup.set(k,r);
   });
-  results=[...dedup.values()].sort((a,b)=>a.score-b.score||a.effective_price-b.effective_price||(a.distance_km??999)-(b.distance_km??999));
+  results=[...dedup.values()].sort((a,b)=>
+    freshnessRank(a)-freshnessRank(b)
+    || a.score-b.score
+    || a.effective_price-b.effective_price
+    || (a.distance_km??999)-(b.distance_km??999)
+  );
 
+  const eligibleResults=results.filter(r=>r.freshness_eligible);
   const preferredResults=results.filter(r=>r.preferred);
-  const preferredBest=preferredResults[0]||null;
-  const alternativeBest=results.find(r=>!r.preferred)||null;
+  const preferredBest=eligibleResults.find(r=>r.preferred)||null;
+  const alternativeBest=eligibleResults.find(r=>!r.preferred)||null;
 
   if(p.preferred_barcode&&p.allow_alternatives===false){
     results=preferredResults;
@@ -587,8 +654,11 @@ async function comparePrices(id){
     ? preferredBest.score-alternativeBest.score
     : null;
 
+  const staleCount=results.filter(r=>!r.freshness_eligible).length;
+  const freshCount=results.length-staleCount;
+
   lastCompare={
-    source:"supabase_v028_dynamic_radius",
+    source:"supabase_v029_price_freshness",
     comparison_mode:p.comparison_mode||"unit",
     candidates_checked:checked,
     results,
@@ -599,7 +669,11 @@ async function comparePrices(id){
     allow_alternatives:p.allow_alternatives!==false,
     radius_km:radiusKm,
     branches_in_radius:localBranches.length,
-    branches_missing_coordinates:missingCoordCount
+    branches_missing_coordinates:missingCoordCount,
+    fresh_result_count:freshCount,
+    stale_result_count:staleCount,
+    fresh_hours:PRICE_FRESH_HOURS,
+    stale_hours:PRICE_STALE_HOURS
   };
   renderComparison();
 }
@@ -621,6 +695,11 @@ function renderComparison(){
   const chainCount=new Set(results.map(r=>r.chain_id)).size;
 
   let summary=`<div class="scope-note"><b>📍 רדיוס ${data.radius_km||household?.search_radius_km||10} ק״מ:</b> נמצאו ${results.length} הצעות עבור ${checked.length} מוצרים ב־${chainCount} רשתות, מתוך ${data.branches_in_radius||0} סניפים בטווח.${data.branches_missing_coordinates?` <span class="sub">${data.branches_missing_coordinates} סניפים ללא coordinates לא נכללו.</span>`:""}</div>`;
+  if(data.stale_result_count){
+    summary+=`<div class="freshness-note">🕒 <b>בקרת טריות:</b> ${data.fresh_result_count||0} הצעות כשירות לדירוג ו־${data.stale_result_count} ישנות מדי. מחיר מעל ${data.stale_hours||36} שעות עדיין מוצג בשקיפות, אבל לא מקבל 🏆 ולא משמש אוטומטית לחישוב "הכי זול".</div>`;
+  }else{
+    summary+=`<div class="freshness-note">🕒 <b>בקרת טריות:</b> כל ${data.fresh_result_count||results.length} ההצעות המוצגות כשירות לדירוג. עד ${data.fresh_hours||12} שעות מסומן כעדכני, ועד ${data.stale_hours||36} שעות עדיין כשיר.</div>`;
+  }
 
   if(data.preferred_barcode){
     if(data.preferred_best){
@@ -639,11 +718,16 @@ function renderComparison(){
     summary+=`<div class="formula-warning">🍼 מותגי תמ״ל אחרים מוצגים להשוואת מחיר בלבד, לא כהמלצה להחליף את התמ״ל שבו משתמשים.</div>`;
   }
 
+  if(!results.some(r=>r.freshness_eligible)){
+    summary+=`<div class="msg err"><b>⚠️ כל המחירים שנמצאו ישנים מדי.</b> הם מוצגים לעיון בלבד ואין כרגע "זוכה" אוטומטי. כדאי להמתין לריצת עדכון המחירים הבאה.</div>`;
+  }
+
+  const bestEligibleIndex=results.findIndex(r=>r.freshness_eligible);
   $("cbody").innerHTML=summary+`<div class="result-list">${results.slice(0,16).map((r,i)=>`
-    <div class="result-card ${i===0?"best":""}">
+    <div class="result-card ${i===bestEligibleIndex?"best":""} ${r.freshness_eligible?"":"stale-card"}">
       <div class="result-head">
         <div>
-          <b>${i===0?"🏆 ":""}${r.preferred?"⭐ ":""}${esc(r.brand)}${r.product_name?" · "+esc(r.product_name):""}</b>
+          <b>${i===bestEligibleIndex?"🏆 ":""}${r.preferred?"⭐ ":""}${esc(r.brand)}${r.product_name?" · "+esc(r.product_name):""}</b>
           <div><span class="chain-tag">${esc(r.chain)}</span></div>
           <div class="meta">${esc(r.branch)}${r.address?" · "+esc(r.address):""}${Number.isFinite(r.distance_km)?` · 📍 ${r.distance_km.toFixed(1)} ק״מ`:""}</div>
         </div>
@@ -653,8 +737,8 @@ function renderComparison(){
         </div>
       </div>
       <div class="meta" style="margin-top:7px">${r.package_quantity?`אריזה: ${esc(r.package_quantity)} ${esc(r.package_unit||"")}`:"כמות אריזה לא זמינה"} · ברקוד ${esc(r.barcode)}</div>
-      ${r.source_updated_at?`<div class="data-fresh">מקור מחיר: ${new Date(r.source_updated_at).toLocaleString("he-IL",{dateStyle:"short",timeStyle:"short"})}</div>`:""}
-      <button class="btn ${i===0?"primary":"soft"}" style="width:100%;margin-top:8px" data-buyidx="${i}">קניתי / רוצה לקנות כאן</button>
+      ${r.freshness_label?`<div class="freshness-badge ${esc(r.freshness_css||"freshness-unknown")}">${esc(r.freshness_label)}</div>`:""}${priceFreshnessTimestamp(r)?`<div class="data-fresh">חותמת מקור: ${new Date(priceFreshnessTimestamp(r)).toLocaleString("he-IL",{dateStyle:"short",timeStyle:"short"})}</div>`:""}
+      <button class="btn ${i===bestEligibleIndex?"primary":"soft"}" style="width:100%;margin-top:8px" data-buyidx="${i}">קניתי / רוצה לקנות כאן</button>
     </div>`).join("")}</div>`;
 
   $("feedbackbox").classList.remove("hidden");
