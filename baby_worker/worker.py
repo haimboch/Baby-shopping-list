@@ -1354,7 +1354,7 @@ def _collect_shuf_be_targeted_official(
 
     session.headers.update({
         "User-Agent": (
-            "baby-price-worker/0.26 "
+            "baby-price-worker/0.27 "
             "(+targeted-branches)"
         ),
         "Accept": (
@@ -1913,11 +1913,46 @@ def _extract_csrf(html_text: str) -> tuple[str | None, str | None]:
 def _extract_osher_files(html_text: str) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
-    for m in OSHER_FILE_RE.finditer(html_text or ""):
-        name = html.unescape(m.group("name"))
+    body = html.unescape(html_text or "")
+
+    for m in OSHER_FILE_RE.finditer(body):
+        name = unquote(m.group("name"))
         if name not in seen:
             seen.add(name)
             names.append(name)
+
+    for raw in re.findall(
+        r'/file/d/([^"\'<>\s]+)',
+        body,
+        re.I,
+    ):
+        candidate = unquote(
+            raw
+        ).split(
+            "?",
+            1,
+        )[0]
+
+        if (
+            candidate.startswith(
+                (
+                    "Stores",
+                    "PriceFull",
+                    "Price",
+                )
+            )
+            and OSHER_CHAIN_ID in candidate
+            and candidate.lower().endswith(
+                (
+                    ".gz",
+                    ".xml",
+                )
+            )
+            and candidate not in seen
+        ):
+            seen.add(candidate)
+            names.append(candidate)
+
     return names
 
 
@@ -1974,6 +2009,160 @@ def _download_osher_http_file(
     return response.content
 
 
+
+def _dedupe_store_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            str(row.get("source_name") or ""),
+            str(row.get("branch_code") or ""),
+        )
+        current = seen.get(key)
+        if current is None:
+            seen[key] = row
+            continue
+
+        def score(x: dict[str, Any]) -> int:
+            return sum(
+                1
+                for field in ("branch_name", "city", "address")
+                if str(x.get(field) or "").strip()
+            )
+
+        if score(row) > score(current):
+            seen[key] = row
+
+    return list(seen.values())
+
+
+def _dedupe_price_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            str(row.get("source_name") or ""),
+            str(row.get("branch_code") or ""),
+            str(row.get("barcode") or ""),
+        )
+        current = seen.get(key)
+        if current is None:
+            seen[key] = row
+            continue
+
+        cur_ts = str(
+            current.get("source_updated_at")
+            or current.get("price_update_time")
+            or ""
+        )
+        row_ts = str(
+            row.get("source_updated_at")
+            or row.get("price_update_time")
+            or ""
+        )
+        if row_ts >= cur_ts:
+            seen[key] = row
+
+    return list(seen.values())
+
+
+def _merge_osher_passes(
+    library_passes: list[dict[str, Any]],
+    direct_passes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+
+    for i in range(3):
+        lp = library_passes[i]
+        dp = direct_passes[i]
+
+        p = {
+            "pass_name": (
+                f'{lp.get("pass_name") or "library"}'
+                f'+{dp.get("pass_name") or "direct"}'
+            ),
+            "file_types": sorted(
+                set(lp.get("file_types", []))
+                | set(dp.get("file_types", []))
+            ),
+            "limit": max(
+                int(lp.get("limit") or 0),
+                int(dp.get("limit") or 0),
+            ),
+            "files_seen": (
+                int(lp.get("files_seen") or 0)
+                + int(dp.get("files_seen") or 0)
+            ),
+            "price_rows": _dedupe_price_rows(
+                list(lp.get("price_rows", []))
+                + list(dp.get("price_rows", []))
+            ),
+            "promo_rows": (
+                list(lp.get("promo_rows", []))
+                + list(dp.get("promo_rows", []))
+            ),
+            "store_rows": _dedupe_store_rows(
+                list(lp.get("store_rows", []))
+                + list(dp.get("store_rows", []))
+            ),
+            "errors": (
+                list(lp.get("errors", []))
+                + list(dp.get("errors", []))
+            ),
+            "kind_counts": {},
+            "sample_files": [],
+            "price_schema_diagnostics": (
+                list(lp.get("price_schema_diagnostics", []))
+                + list(dp.get("price_schema_diagnostics", []))
+            )[:6],
+        }
+
+        for src in (lp, dp):
+            for k, v in src.get("kind_counts", {}).items():
+                p["kind_counts"][k] = p["kind_counts"].get(k, 0) + int(v or 0)
+
+            for name in src.get("sample_files", []):
+                if name not in p["sample_files"] and len(p["sample_files"]) < 12:
+                    p["sample_files"].append(name)
+
+        merged.append(p)
+
+    return merged
+
+
+def _osher_library_is_incomplete(
+    *,
+    stores_pass: dict[str, Any],
+    full_pass: dict[str, Any],
+    min_full_files: int,
+    min_branches: int,
+) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+
+    if int(stores_pass.get("files_seen") or 0) == 0:
+        reasons.append("missing_stores_file")
+
+    store_rows = list(stores_pass.get("store_rows", []))
+    if not store_rows:
+        reasons.append("missing_store_metadata")
+
+    full_files_seen = int(full_pass.get("files_seen") or 0)
+    if full_files_seen < min_full_files:
+        reasons.append(
+            f"full_files_below_threshold:{full_files_seen}<{min_full_files}"
+        )
+
+    price_branches = {
+        str(r.get("branch_code") or "")
+        for r in full_pass.get("price_rows", [])
+        if str(r.get("branch_code") or "")
+    }
+    if len(price_branches) < min_branches:
+        reasons.append(
+            f"price_branches_below_threshold:{len(price_branches)}<{min_branches}"
+        )
+
+    return bool(reasons), reasons
+
+
 def _collect_osher_http_direct(
     *,
     stores_limit: int = 1,
@@ -1990,7 +2179,7 @@ def _collect_osher_http_direct(
     owns_session = session is None
     session = session or requests.Session()
     session.headers.update({
-        "User-Agent": "baby-price-worker/0.26 (+osher-ad-direct-http)",
+        "User-Agent": "baby-price-worker/0.27 (+osher-ad-direct-http)",
         "Accept": "text/html,application/xhtml+xml,*/*",
     })
 
@@ -2341,39 +2530,77 @@ async def collect_source(
             )
         )
 
-        # First use the maintained library. If it returns zero files, fall
-        # back to the chain's public Cerberus HTTP publication interface.
-        stores_pass = await _collect_scraper_pass(
+        min_full_files = int(
+            os.environ.get(
+                "OSHER_AD_MIN_FULL_FILES_BEFORE_DIRECT",
+                "8",
+            )
+        )
+        min_branches = int(
+            os.environ.get(
+                "OSHER_AD_MIN_BRANCHES_BEFORE_DIRECT",
+                "8",
+            )
+        )
+
+        lib_stores = await _collect_scraper_pass(
             scraper_name,
             file_types=["STORE_FILE"],
             limit=stores_limit,
-            pass_name="stores",
+            pass_name="stores_library",
         )
-        full_pass = await _collect_scraper_pass(
+        lib_full = await _collect_scraper_pass(
             scraper_name,
             file_types=["PRICE_FULL_FILE"],
             limit=full_limit,
-            pass_name="full_bootstrap",
+            pass_name="full_library",
         )
-        incremental_pass = await _collect_scraper_pass(
+        lib_inc = await _collect_scraper_pass(
             scraper_name,
             file_types=["PRICE_FILE"],
             limit=incremental_limit,
-            pass_name="incremental",
+            pass_name="incremental_library",
         )
 
-        library_files_seen = (
-            stores_pass["files_seen"]
-            + full_pass["files_seen"]
-            + incremental_pass["files_seen"]
+        library_passes = [
+            lib_stores,
+            lib_full,
+            lib_inc,
+        ]
+
+        incomplete, incomplete_reasons = (
+            _osher_library_is_incomplete(
+                stores_pass=lib_stores,
+                full_pass=lib_full,
+                min_full_files=min_full_files,
+                min_branches=min_branches,
+            )
         )
 
         direct_http_used = False
         direct_http_diagnostics = None
 
-        if library_files_seen == 0:
+        direct_passes = [
+            _empty_osher_pass(
+                "stores_direct_unused",
+                "STORE_FILE",
+                stores_limit,
+            ),
+            _empty_osher_pass(
+                "full_direct_unused",
+                "PRICE_FULL_FILE",
+                full_limit,
+            ),
+            _empty_osher_pass(
+                "incremental_direct_unused",
+                "PRICE_FILE",
+                incremental_limit,
+            ),
+        ]
+
+        if incomplete:
             direct_http_used = True
-            http_passes, direct_http_diagnostics = (
+            direct_passes, direct_http_diagnostics = (
                 _collect_osher_http_direct(
                     stores_limit=stores_limit,
                     full_limit=full_limit,
@@ -2381,24 +2608,84 @@ async def collect_source(
                     max_pages=int(
                         os.environ.get(
                             "OSHER_AD_HTTP_MAX_PAGES",
-                            "12",
+                            "24",
                         )
                     ),
                 )
             )
-            stores_pass, full_pass, incremental_pass = http_passes
+
+        merged_passes = (
+            _merge_osher_passes(
+                library_passes,
+                direct_passes,
+            )
+            if direct_http_used
+            else library_passes
+        )
+
+        stores_pass, full_pass, incremental_pass = merged_passes
 
         data = _merge_source_passes(
             scraper_name,
             file_limit,
-            [stores_pass, full_pass, incremental_pass],
+            merged_passes,
         )
+
+        library_price_branches = sorted({
+            str(r.get("branch_code") or "")
+            for r in lib_full.get("price_rows", [])
+            if str(r.get("branch_code") or "")
+        })
+
+        merged_price_branches = sorted({
+            str(r.get("branch_code") or "")
+            for r in full_pass.get("price_rows", [])
+            if str(r.get("branch_code") or "")
+        })
+
         data["scrape_file_limit"] = {
             "stores": stores_limit,
             "full": full_limit,
             "incremental": incremental_limit,
+            "direct_http_max_pages": int(
+                os.environ.get(
+                    "OSHER_AD_HTTP_MAX_PAGES",
+                    "24",
+                )
+            ),
         }
+
         data["osher_ad_bootstrap"] = {
+            "coverage_mode": (
+                "library_plus_direct_http"
+                if direct_http_used
+                else "library_sufficient"
+            ),
+            "coverage_incomplete_before_direct": incomplete,
+            "coverage_incomplete_reasons": incomplete_reasons,
+            "min_full_files_before_direct": min_full_files,
+            "min_branches_before_direct": min_branches,
+
+            "library": {
+                "stores_files_seen": lib_stores["files_seen"],
+                "stores_rows": len(lib_stores["store_rows"]),
+                "full_files_seen": lib_full["files_seen"],
+                "full_baby_rows": len(lib_full["price_rows"]),
+                "price_branches": library_price_branches,
+                "incremental_files_seen": lib_inc["files_seen"],
+                "incremental_baby_rows": len(lib_inc["price_rows"]),
+            },
+
+            "merged": {
+                "stores_files_seen": stores_pass["files_seen"],
+                "stores_rows": len(stores_pass["store_rows"]),
+                "full_files_seen": full_pass["files_seen"],
+                "full_baby_rows": len(full_pass["price_rows"]),
+                "price_branches": merged_price_branches,
+                "incremental_files_seen": incremental_pass["files_seen"],
+                "incremental_baby_rows": len(incremental_pass["price_rows"]),
+            },
+
             "stores_files_seen": stores_pass["files_seen"],
             "stores_rows": len(stores_pass["store_rows"]),
             "full_files_seen": full_pass["files_seen"],
@@ -2406,17 +2693,15 @@ async def collect_source(
             "incremental_files_seen": incremental_pass["files_seen"],
             "incremental_baby_rows": len(incremental_pass["price_rows"]),
             "target_branches_from_metadata": sorted(
-                _target_codes(target_plan, "osher_ad")
+                _target_codes(
+                    target_plan,
+                    "osher_ad",
+                )
             ),
-            "coverage_mode": (
-                "direct_cerberus_http"
-                if direct_http_used
-                else "library"
-            ),
-            "library_files_seen_before_fallback": library_files_seen,
             "direct_http_used": direct_http_used,
             "direct_http_diagnostics": direct_http_diagnostics,
         }
+
         return data
 
     if scraper_name == "RAMI_LEVY":
