@@ -1,40 +1,60 @@
-name: Update baby prices
+name: Update Baby Prices
 
 on:
   workflow_dispatch:
     inputs:
       file_limit:
-        description: "Smoke-test file limit; leave blank for full run"
-        required: false
+        description: "Maximum feed files per scraper"
+        required: true
         default: "20"
+  schedule:
+    - cron: "17 */4 * * *"
+      timezone: "Asia/Jerusalem"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: baby-price-update
+  cancel-in-progress: false
 
 jobs:
-  ingest:
+  update-prices:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run parser self-test
+      - name: Resolve file limit
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "WORKER_FILE_LIMIT=20" >> "$GITHUB_ENV"
+          else
+            echo "WORKER_FILE_LIMIT=${{ inputs.file_limit }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Worker self-test
+        env:
+          PYTHONUNBUFFERED: "1"
         run: python self_test.py
 
-      - name: Run baby price worker
+      - name: Update baby prices
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CHEAPERSAL_API_KEY: ${{ secrets.CHEAPERSAL_API_KEY }}
+          ENABLED_CHAINS: "shufersal,be,rami_levy,yochananof,osher_ad"
           ENRICHMENT_LIMIT: "8"
-          ENABLED_CHAINS: super_pharm,shufersal,be,rami_levy,yochananof,osher_ad
-          WORKER_FILE_LIMIT: ${{ github.event.inputs.file_limit }}
+          PYTHONUNBUFFERED: "1"
         run: python run_worker.py
