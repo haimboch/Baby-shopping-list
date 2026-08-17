@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#6557e8">
-<title>Baby Smart List · Pilot v0.23</title>
+<title>Baby Smart List · Pilot v0.25</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -78,7 +78,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 <div>
   <div class="brand"><div class="logo">🛒</div><div><h1 id="title">המלאי של התינוק</h1><div class="sub">מה חסר בבית, איפה הכי משתלם לקנות</div></div></div>
   <div class="sync">● מסונכרן בזמן אמת</div>
-  <div class="pilot-badge">📍 v0.23 · אזור דינמי · Targeted Branches</div>
+  <div class="pilot-badge">📍 v0.25 · אזור דינמי · + אושר עד</div>
   <div class="chain-strip" aria-label="רשתות פעילות">
     <span>רמי לוי</span><span>יוחננוף</span><span>שופרסל</span><span>Be</span>
   </div>
@@ -236,12 +236,12 @@ const NEEDS={
   other:{name:"",category:"כללי",dimension_type:"none",comparison_mode:"package",label:null,values:[],alternatives:false}
 };
 const SUPPORTED_NEEDS=new Set(["diapers","wipes","formula"]);
-const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be"];
-const CHAIN_LABELS={rami_levy:"רמי לוי",yochananof:"יוחננוף",shufersal:"שופרסל",be:"Be"};
+const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be","osher_ad"];
+const CHAIN_LABELS={rami_levy:"רמי לוי",yochananof:"יוחננוף",shufersal:"שופרסל",be:"Be",osher_ad:"אושר עד"};
 function normPlace(v){
   return String(v||"").trim().toLowerCase().replace(/[\u200e\u200f]/g,"").replace(/\s+/g," ");
 }
-const BRANCH_PREFIXES=["שופרסל דיל ","שופרסל שלי ","שופרסל ","יוחננוף ","רמי לוי ","אקספרס ","סניף ","דיל ","שלי ","be "];
+const BRANCH_PREFIXES=["שופרסל דיל ","שופרסל שלי ","שופרסל ","יוחננוף ","רמי לוי ","אושר עד ","אקספרס ","סניף ","דיל ","שלי ","be "];
 function branchNameCore(v){
   let s=normPlace(v),changed=true;
   while(changed){changed=false;for(const p of BRANCH_PREFIXES){if(s.startsWith(p)){s=s.slice(p.length).trim().replace(/^[-–—\s]+/,"");changed=true;break;}}}
@@ -291,7 +291,7 @@ async function loadAll(){
 async function invite(){let {data}=await sb.from("household_invites").select("code").eq("household_id",household.id).gt("expires_at",new Date().toISOString()).order("created_at",{ascending:false}).limit(1).maybeSingle();if(!data&&member.role==="owner"){let r=await sb.from("household_invites").insert({household_id:household.id}).select("code").single();data=r.data}$("code").textContent=data?.code||"אין קוד פעיל"}
 function subscribe(){
   if(channel)sb.removeChannel(channel);
-  channel=sb.channel("baby-v023-"+household.id)
+  channel=sb.channel("baby-v025-"+household.id)
     .on("postgres_changes",{event:"*",schema:"public",table:"products",filter:`household_id=eq.${household.id}`},loadAll)
     .on("postgres_changes",{event:"*",schema:"public",table:"product_alternatives",filter:`household_id=eq.${household.id}`},loadAll)
     .subscribe()
@@ -533,7 +533,7 @@ async function comparePrices(id){
     : null;
 
   lastCompare={
-    source:"supabase_v023_targeted",
+    source:"supabase_v025_osher",
     comparison_mode:p.comparison_mode||"unit",
     candidates_checked:checked,
     results,
