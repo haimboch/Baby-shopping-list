@@ -806,7 +806,6 @@ def _collect_superpharm_official(
             pass_name="full_bootstrap",
             file_type="PRICE_FULL_FILE",
             limit=full_limit,
-            target_codes=target_codes,
         )
         incremental_pass = _download_sp_pass(
             session,
@@ -814,7 +813,6 @@ def _collect_superpharm_official(
             pass_name="incremental",
             file_type="PRICE_FILE",
             limit=incremental_limit,
-            target_codes=target_codes,
         )
 
         scan_errors = (
