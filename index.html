@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#6557e8">
-<title>Baby Smart List · Pilot v0.29</title>
+<title>Baby Smart List · Pilot v0.30</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -47,6 +47,18 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 .freshness-unknown{background:#f1f5f9;color:#475569}
 .stale-card{opacity:.82}
 .freshness-note{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:9px 10px;margin:8px 0;font-size:.78rem;line-height:1.5}
+.inventory-box{margin-top:10px;border:1px solid #dbe5ee;background:#fbfdff;border-radius:14px;padding:10px}
+.inventory-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.inventory-value{font-size:1rem;font-weight:900}
+.inventory-controls{display:flex;gap:7px;align-items:center;margin-top:9px}
+.inv-btn{min-width:44px;height:38px;border:1px solid #ccd8e4;background:white;border-radius:11px;font-weight:900;font-size:1rem;cursor:pointer}
+.inv-set{flex:1;height:38px;border:1px solid #ccd8e4;background:#f8fafc;border-radius:11px;font-weight:800;cursor:pointer}
+.consumption-line{font-size:.74rem;line-height:1.5;margin-top:8px;color:#536171}
+.forecast-good{color:#166534}
+.forecast-early{color:#92400e}
+.forecast-collecting{color:#64748b}
+.inventory-help{font-size:.7rem;color:#718096;margin-top:7px}
+
 .result-list{display:grid;gap:9px;margin-top:12px}.result-card{border:1px solid var(--line);border-radius:14px;padding:12px}.result-card.best{border:2px solid #68bda0;background:#f5fffb}
 .result-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.price{font-size:1.28rem;font-weight:900}.unit-price{font-size:.8rem;color:var(--muted);margin-top:2px}
 .promo{display:inline-block;background:#fff1f3;color:#b33149;border-radius:999px;padding:4px 7px;font-size:.7rem;font-weight:800;margin-top:5px}
@@ -85,7 +97,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 <div>
   <div class="brand"><div class="logo">🛒</div><div><h1 id="title">המלאי של התינוק</h1><div class="sub">מה חסר בבית, איפה הכי משתלם לקנות</div></div></div>
   <div class="sync">● מסונכרן בזמן אמת</div>
-  <div class="pilot-badge">🕒 v0.29 · Price Freshness · עדכון אוטומטי + בקרת טריות</div>
+  <div class="pilot-badge">📦 v0.30 · Inventory Intelligence · היסטוריית מלאי + קצב צריכה</div>
   <div class="chain-strip" aria-label="רשתות פעילות">
     <span>רמי לוי</span><span>יוחננוף</span><span>שופרסל</span><span>Be</span>
   </div>
@@ -160,6 +172,26 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
   <button type="button" class="btn danger hidden" id="del">מחק צורך</button>
   <button class="btn" value="cancel">ביטול</button>
   <button type="submit" class="btn primary">שמור</button>
+</div>
+</form></dialog>
+
+
+<dialog id="idlg"><form method="dialog" class="dlg" id="iform">
+<div class="dh"><h3>📦 עדכון מלאי</h3><button class="btn" value="cancel">✕</button></div>
+<input type="hidden" id="iid">
+<div id="isub" class="note">עדכן כמה אריזות יש כרגע בבית.</div>
+<div class="field">
+  <label>כמות נוכחית</label>
+  <input id="iqty" type="number" min="0" step="0.1" inputmode="decimal" required>
+</div>
+<div class="field">
+  <label>יחידת מלאי</label>
+  <input id="iunit" placeholder="למשל: חבילות">
+</div>
+<div class="note">תיקון ידני לא נחשב כצריכה. בהמשך פשוט משתמשים ב־−1 כשאריזה נגמרת וב־+1 כשנוספה אריזה.</div>
+<div class="actions">
+  <button class="btn" value="cancel">ביטול</button>
+  <button class="btn primary" type="submit">שמור מלאי</button>
 </div>
 </form></dialog>
 
@@ -278,7 +310,7 @@ function rowMatchesArea(r,profile){
   if(profile.codes?.includes(c))return true;
   return false;
 }
-let session=null,household=null,member=null,items=[],alts=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null;
+let session=null,household=null,member=null,items=[],alts=[],consumption=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null;
 const $=x=>document.getElementById(x),esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function view(id){["auth","onboard","app"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
 function msg(id,t,e=false){let x=$(id);x.textContent=t;x.classList.remove("hidden","err");if(e)x.classList.add("err")}
@@ -286,20 +318,85 @@ function needAlts(id){return alts.filter(a=>a.product_id===id&&a.active!==false)
 async function boot(){let {data}=await sb.auth.getSession();session=data.session;if(!session)return view("auth");await route()}
 async function route(){let {data,error}=await sb.from("household_members").select("household_id,role").limit(1).maybeSingle();if(error)return msg("onmsg",error.message,true);if(!data)return view("onboard");member=data;await loadHouse(data.household_id)}
 async function loadHouse(id){let {data,error}=await sb.from("households").select("id,name,city,latitude,longitude,search_radius_km").eq("id",id).single();if(error)return alert(error.message);household=data;$("title").textContent=data.name;updateLocationButton();await loadAll();await invite();subscribe();view("app")}
+
+function defaultInventoryUnit(p){
+  if(p?.unit_label)return p.unit_label;
+  if(p?.need_key==="formula")return "קופסאות";
+  if(["diapers","wipes"].includes(p?.need_key))return "חבילות";
+  return "יחידות";
+}
+function consumptionStat(id){
+  return consumption.find(x=>x.product_id===id)||null;
+}
+function inventoryForecastHtml(p){
+  const s=consumptionStat(p.id);
+  if(p.quantity==null){
+    return `<div class="consumption-line forecast-collecting">📊 הגדר מלאי התחלתי כדי להתחיל ללמוד את קצב הצריכה.</div>`;
+  }
+  if(!s||!s.avg_daily_consumption){
+    const label=s?.confidence==="early"?"כבר לומדים, צריך עוד כמה עדכוני מלאי":"אוספים נתונים";
+    return `<div class="consumption-line forecast-collecting">📊 ${label} · אין עדיין תחזית יציבה.</div>`;
+  }
+  const rate=Number(s.avg_daily_consumption);
+  const days=Number(s.days_remaining);
+  const cls=s.confidence==="learning"?"forecast-good":"forecast-early";
+  return `<div class="consumption-line ${cls}">📈 קצב ממוצע: <b>${rate.toFixed(rate<1?2:1)} ${esc(s.unit_label||defaultInventoryUnit(p))}/יום</b>${Number.isFinite(days)?` · ⏳ נשארו בערך <b>${days.toFixed(days<10?1:0)} ימים</b>`:""}</div>`;
+}
+function inventoryBox(p){
+  const unit=defaultInventoryUnit(p);
+  const qty=p.quantity==null?null:Number(p.quantity);
+  return `<div class="inventory-box">
+    <div class="inventory-top">
+      <b>📦 מלאי בבית</b>
+      <span class="inventory-value">${qty==null?"לא הוגדר":`${qty} ${esc(unit)}`}</span>
+    </div>
+    <div class="inventory-controls">
+      <button class="inv-btn" data-invdec="${p.id}" ${qty==null||qty<=0?"disabled":""}>−1</button>
+      <button class="inv-set" data-invset="${p.id}">${qty==null?"הגדר מלאי":"עדכון מדויק"}</button>
+      <button class="inv-btn" data-invinc="${p.id}">+1</button>
+    </div>
+    ${inventoryForecastHtml(p)}
+    <div class="inventory-help">כשאריזה נגמרת לחץ −1. קנייה דרך האפליקציה מוסיפה את האריזות אוטומטית.</div>
+  </div>`;
+}
+async function changeInventory(id,delta){
+  const p=items.find(x=>x.id===id);
+  if(!p)return;
+  if(delta<0&&p.quantity==null)return openInventoryEditor(p);
+  const kind=delta<0?"consumption":"restock";
+  const {error}=await sb.rpc("change_product_inventory",{
+    p_product_id:id,
+    p_delta:delta,
+    p_change_kind:kind
+  });
+  if(error)return alert("לא הצלחתי לעדכן מלאי: "+error.message);
+  await loadAll();
+}
+function openInventoryEditor(p){
+  if(!p)return;
+  $("iid").value=p.id;
+  $("iqty").value=p.quantity==null?"":Number(p.quantity);
+  $("iunit").value=defaultInventoryUnit(p);
+  $("isub").textContent=`${p.name}${p.need_detail?" · "+p.need_detail:""} · הזן את המלאי שקיים כרגע בבית.`;
+  $("idlg").showModal();
+}
+
 async function loadAll(){
-  let [pr,ar]=await Promise.all([
+  let [pr,ar,cr]=await Promise.all([
     sb.from("products").select("*").eq("household_id",household.id).order("created_at"),
-    sb.from("product_alternatives").select("*").eq("household_id",household.id).order("preferred",{ascending:false}).order("created_at")
+    sb.from("product_alternatives").select("*").eq("household_id",household.id).order("preferred",{ascending:false}).order("created_at"),
+    sb.from("baby_consumption_stats").select("*").eq("household_id",household.id)
   ]);
   if(pr.error)return alert("שגיאה בטעינת הצרכים: "+pr.error.message);
   if(ar.error)return alert("שגיאה בטעינת המוצרים החלופיים: "+ar.error.message);
-  items=pr.data||[];alts=ar.data||[];render();
+  if(cr.error)return alert("שגיאה בטעינת נתוני הצריכה: "+cr.error.message);
+  items=pr.data||[];alts=ar.data||[];consumption=cr.data||[];render();
   if(currentNeed&&$("adlg").open)renderAltDialog();
 }
 async function invite(){let {data}=await sb.from("household_invites").select("code").eq("household_id",household.id).gt("expires_at",new Date().toISOString()).order("created_at",{ascending:false}).limit(1).maybeSingle();if(!data&&member.role==="owner"){let r=await sb.from("household_invites").insert({household_id:household.id}).select("code").single();data=r.data}$("code").textContent=data?.code||"אין קוד פעיל"}
 function subscribe(){
   if(channel)sb.removeChannel(channel);
-  channel=sb.channel("baby-v028-"+household.id)
+  channel=sb.channel("baby-v030-"+household.id)
     .on("postgres_changes",{event:"*",schema:"public",table:"products",filter:`household_id=eq.${household.id}`},loadAll)
     .on("postgres_changes",{event:"*",schema:"public",table:"product_alternatives",filter:`household_id=eq.${household.id}`},loadAll)
     .subscribe()
@@ -331,6 +428,7 @@ function card(p){
     <div class="ph"><div><h3>${esc(p.name)}</h3><div class="meta">${esc(p.category)} · ${esc(MODES[p.comparison_mode]||MODES.package)}</div>${dim?`<div class="need-detail">${esc(dim)}</div>`:""}</div><button class="btn" data-edit="${p.id}">✎</button></div>
     <div class="statusline" style="color:${st[2]}">${st[1]} ${st[0]}</div>
     <div class="statuses">${Object.entries(S).map(([k,v])=>`<button class="sbtn ${p.stock_status===k?"cur":""}" data-id="${p.id}" data-status="${k}" data-s="${k}">${v[1]}<br>${v[0]}</button>`).join("")}</div>
+    ${inventoryBox(p)}
     ${center}
     ${supported?`<button class="compare-btn" data-compare="${p.id}">🔎 מצא את העסקה הטובה ביותר</button>`:""}
   </article>`
@@ -772,8 +870,18 @@ async function savePurchase(){
     reference_price:ref,calculated_savings:savings,notes:$("purchasenote").value.trim()||null
   });
   if(error)return alert("לא הצלחתי לשמור את הקנייה: "+error.message);
-  await sb.from("products").update({stock_status:"ok",updated_by:session.user.id}).eq("id",currentNeed.id);
-  $("purchasebox").innerHTML=`<div class="msg">✅ הקנייה נשמרה${savings!=null?` · חיסכון משוער <b>${formatMoney(savings)}</b>`:""}.</div>`;
+
+  const inv=await sb.rpc("change_product_inventory",{
+    p_product_id:currentNeed.id,
+    p_delta:count,
+    p_change_kind:"purchase"
+  });
+  if(inv.error){
+    $("purchasebox").innerHTML=`<div class="msg err">✅ הקנייה נשמרה, אבל עדכון המלאי נכשל: ${esc(inv.error.message)}</div>`;
+    return loadAll();
+  }
+
+  $("purchasebox").innerHTML=`<div class="msg">✅ הקנייה נשמרה והמלאי גדל ב־<b>${count} ${esc(defaultInventoryUnit(currentNeed))}</b>${savings!=null?` · חיסכון משוער <b>${formatMoney(savings)}</b>`:""}.</div>`;
   await loadAll()
 }
 async function sendFeedback(helpful){
@@ -791,6 +899,9 @@ $("join").onclick=async()=>{let {error}=await sb.from("household_join_requests")
 $("outsimple").onclick=async()=>{await sb.auth.signOut();location.reload()};$("logout").onclick=async()=>{await sb.auth.signOut();location.reload()}
 $("filters").onclick=e=>{let b=e.target.closest("[data-f]");if(!b)return;filter=b.dataset.f;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("active",x===b));render()}
 $("products").onclick=e=>{
+  let dec=e.target.closest("[data-invdec]");if(dec)return changeInventory(dec.dataset.invdec,-1);
+  let inc=e.target.closest("[data-invinc]");if(inc)return changeInventory(inc.dataset.invinc,1);
+  let inv=e.target.closest("[data-invset]");if(inv)return openInventoryEditor(items.find(x=>x.id===inv.dataset.invset));
   let s=e.target.closest("[data-status]");if(s)return status(s.dataset.id,s.dataset.status);
   let ed=e.target.closest("[data-edit]");if(ed)return openNeed(items.find(x=>x.id===ed.dataset.edit));
   let aa=e.target.closest("[data-alts]");if(aa)return openAlternatives(aa.dataset.alts);
@@ -798,6 +909,23 @@ $("products").onclick=e=>{
 }
 $("shop").onclick=e=>{let b=e.target.closest("[data-bought]");if(b)return status(b.dataset.bought,"ok");let a=e.target.closest("[data-shopalts]");if(a)return openAlternatives(a.dataset.shopalts);let c=e.target.closest("[data-shopcompare]");if(c)return comparePrices(c.dataset.shopcompare)}
 $("add").onclick=()=>openNeed()
+$("iform").onsubmit=async e=>{
+  e.preventDefault();
+  const id=$("iid").value;
+  const p=items.find(x=>x.id===id);
+  const qty=Number($("iqty").value);
+  const unit=$("iunit").value.trim()||defaultInventoryUnit(p);
+  if(!p||!Number.isFinite(qty)||qty<0)return alert("הכנס כמות מלאי תקינה.");
+  const {error}=await sb.rpc("set_product_inventory",{
+    p_product_id:id,
+    p_quantity:qty,
+    p_unit_label:unit,
+    p_change_kind:p.quantity==null?"initial":"correction"
+  });
+  if(error)return alert("לא הצלחתי לשמור מלאי: "+error.message);
+  $("idlg").close();
+  await loadAll();
+}
 $("pform").onsubmit=async e=>{
   e.preventDefault();
   let id=$("pid").value,key=$("pneedkey").value||"other",cfg=NEEDS[key]||NEEDS.other;
