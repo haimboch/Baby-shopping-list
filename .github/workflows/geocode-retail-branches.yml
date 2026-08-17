@@ -1,0 +1,36 @@
+name: Geocode retail branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Maximum missing branches to geocode in this run"
+        required: true
+        default: "120"
+
+concurrency:
+  group: baby-retail-branch-geocoding
+  cancel-in-progress: false
+
+jobs:
+  geocode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Geocode missing branch coordinates
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEOCODE_LIMIT: ${{ inputs.limit }}
+          GEOCODE_SLEEP_SECONDS: "1.1"
+          NOMINATIM_USER_AGENT: "BabyShoppingPilot/0.28 (+https://github.com/haimboch/Baby-shopping-list)"
+        run: python geocode_branches.py --limit "$GEOCODE_LIMIT"
