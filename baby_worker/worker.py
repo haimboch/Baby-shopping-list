@@ -24,6 +24,7 @@ SCRAPER_TO_DB = {
     "RAMI_LEVY": "rami_levy",
     "YOHANANOF": "yochananof",
     "SHUFERSAL": "shufersal",  # split to Be later by subchain
+    "OSHER_AD": "osher_ad",
 }
 CHAIN_TO_SCRAPER = {
     "super_pharm": "SUPER_PHARM",
@@ -31,6 +32,7 @@ CHAIN_TO_SCRAPER = {
     "yochananof": "YOHANANOF",
     "shufersal": "SHUFERSAL",
     "be": "SHUFERSAL",
+    "osher_ad": "OSHER_AD",
 }
 
 def utcnow() -> str:
@@ -1351,7 +1353,7 @@ def _collect_shuf_be_targeted_official(
 
     session.headers.update({
         "User-Agent": (
-            "baby-price-worker/0.24 "
+            "baby-price-worker/0.25 "
             "(+targeted-branches)"
         ),
         "Accept": (
@@ -2035,6 +2037,67 @@ async def collect_source(
         ] = target_stats
         return data
 
+    if scraper_name == "OSHER_AD":
+        # Osher Ad is a relatively small chain. On bootstrap we deliberately
+        # collect the Stores file plus enough PriceFull files to cover the
+        # whole network, instead of trusting WORKER_FILE_LIMIT=20.
+        stores_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["STORE_FILE"],
+            limit=1,
+            pass_name="stores",
+        )
+
+        full_limit = int(
+            os.environ.get(
+                "OSHER_AD_FULL_FILE_LIMIT",
+                "30",
+            )
+        )
+        incremental_limit = int(
+            os.environ.get(
+                "OSHER_AD_INCREMENTAL_FILE_LIMIT",
+                str(max(1, file_limit or 20)),
+            )
+        )
+
+        full_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PRICE_FULL_FILE"],
+            limit=full_limit,
+            pass_name="full_bootstrap",
+        )
+        incremental_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PRICE_FILE"],
+            limit=incremental_limit,
+            pass_name="incremental",
+        )
+
+        data = _merge_source_passes(
+            scraper_name,
+            file_limit,
+            [stores_pass, full_pass, incremental_pass],
+        )
+        data["scrape_file_limit"] = {
+            "stores": 1,
+            "full": full_limit,
+            "incremental": incremental_limit,
+        }
+        data["osher_ad_bootstrap"] = {
+            "stores_files_seen": stores_pass["files_seen"],
+            "stores_rows": len(stores_pass["store_rows"]),
+            "full_files_seen": full_pass["files_seen"],
+            "full_baby_rows": len(full_pass["price_rows"]),
+            "incremental_files_seen": incremental_pass["files_seen"],
+            "incremental_baby_rows": len(incremental_pass["price_rows"]),
+            "target_branches_from_metadata": sorted(
+                _target_codes(target_plan, "osher_ad")
+            ),
+            "coverage_mode": "full_small_chain_bootstrap",
+        }
+        return data
+
     if scraper_name == "RAMI_LEVY":
         stores_pass = await _collect_scraper_pass(
             scraper_name,
@@ -2183,6 +2246,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "be_bootstrap": data.get("be_bootstrap"),
                         "super_pharm_bootstrap": data.get("super_pharm_bootstrap"),
                         "rami_levy_location": data.get("rami_levy_location"),
+                        "osher_ad_bootstrap": data.get("osher_ad_bootstrap"),
                         "targeted_branch_coverage": data.get("targeted_branch_coverage"),
                         "target_branch_plan": target_plan,
                         "metadata_enrichment": enrichment_stats,
@@ -2244,7 +2308,7 @@ def main():
     parser = argparse.ArgumentParser(description="Baby price-transparency worker")
     parser.add_argument(
         "--chains",
-        default=os.environ.get("ENABLED_CHAINS", "super_pharm,shufersal,be,rami_levy,yochananof"),
+        default=os.environ.get("ENABLED_CHAINS", "super_pharm,shufersal,be,rami_levy,yochananof,osher_ad"),
         help="Comma-separated DB chain ids",
     )
     raw_limit = os.environ.get("WORKER_FILE_LIMIT", "").strip()
