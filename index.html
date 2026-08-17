@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#6557e8">
-<title>המלאי של התינוק</title>
+<title>Baby Smart List · Pilot v0.21</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -33,6 +33,13 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 .alt-list{display:grid;gap:8px;margin:12px 0}.alt-row{border:1px solid var(--line);border-radius:13px;padding:11px;display:grid;grid-template-columns:1fr auto;gap:8px}.alt-row b{display:block}.alt-row .barcode{font-size:.72rem;color:var(--muted);direction:ltr;text-align:right}.alt-form{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}.check{display:flex;align-items:center;gap:8px;margin:10px 0}.empty{padding:15px;text-align:center;color:var(--muted)}
 .top-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
 .pilot-badge{display:inline-flex;align-items:center;gap:6px;background:#fff6df;color:#8a5a00;border:1px solid #f0d58c;border-radius:999px;padding:5px 9px;font-size:.75rem;font-weight:800;margin-top:7px}
+
+.chain-strip{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}.chain-strip span{font-size:.72rem;background:#eef7f3;color:#087c58;border:1px solid #cce9dd;border-radius:999px;padding:4px 8px;font-weight:800}
+.scope-note{margin:10px 0;padding:10px;border-radius:12px;background:#fff9e9;border:1px solid #f0dd9a;color:#765500;font-size:.8rem}
+.pref-box{margin:10px 0;padding:10px;border-radius:12px;background:#f4f2ff;border:1px solid #ddd8ff;color:#5145bd;font-size:.82rem}
+.formula-warning{margin-top:9px;padding:9px;border-radius:11px;background:#fff8ee;border:1px solid #f0d6ad;color:#7a5522;font-size:.78rem}
+.chain-tag{display:inline-flex;border-radius:999px;padding:3px 7px;background:#f2f4f7;color:#4a5061;font-size:.7rem;font-weight:800;margin-top:4px}
+.data-fresh{font-size:.68rem;color:var(--muted);margin-top:5px}
 .result-list{display:grid;gap:9px;margin-top:12px}.result-card{border:1px solid var(--line);border-radius:14px;padding:12px}.result-card.best{border:2px solid #68bda0;background:#f5fffb}
 .result-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.price{font-size:1.28rem;font-weight:900}.unit-price{font-size:.8rem;color:var(--muted);margin-top:2px}
 .promo{display:inline-block;background:#fff1f3;color:#b33149;border-radius:999px;padding:4px 7px;font-size:.7rem;font-weight:800;margin-top:5px}
@@ -69,9 +76,12 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 <main class="shell">
 <header class="top">
 <div>
-  <div class="brand"><div class="logo">🛒</div><div><h1 id="title">המלאי של התינוק</h1><div class="sub">צורך אחד, כמה מוצרים חלופיים, החלטה אחת טובה</div></div></div>
+  <div class="brand"><div class="logo">🛒</div><div><h1 id="title">המלאי של התינוק</h1><div class="sub">מה חסר בבית, איפה הכי משתלם לקנות</div></div></div>
   <div class="sync">● מסונכרן בזמן אמת</div>
-  <div class="pilot-badge">🧪 Pilot MVP · חיפוש דינמי לפי מידה/שלב</div>
+  <div class="pilot-badge">🧪 שלב 1 · 4 רשתות פעילות · נתוני אמת</div>
+  <div class="chain-strip" aria-label="רשתות פעילות">
+    <span>רמי לוי</span><span>יוחננוף</span><span>שופרסל</span><span>Be</span>
+  </div>
 </div>
 <div class="top-actions"><button class="btn" id="location">📍 מיקום</button><button class="btn" id="family">👥 משפחה</button></div>
 </header>
@@ -87,7 +97,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 <section class="card shopping">
   <div id="shop" class="rows"></div>
   <div id="emptyshop" class="sub" style="text-align:center;padding:18px">הכול מסודר כרגע 🎉</div>
-  <div class="note">🔎 ב־Pilot אנחנו בודקים קודם טיטולים: מסמנים שחסר, משווים את כל הברקודים המאושרים באזור, ובוחרים לפי מחיר לטיטול.</div>
+  <div class="note">🛒 Pilot של שלב 1: מסמנים שחסר, משווים חיתולים / תמ״ל / מגבונים בין רמי לוי, יוחננוף, שופרסל ו־Be. כרגע מוצג המחיר הזול שנמצא בכל רשת; סינון מדויק לפי מרחק יופעל אחרי השלמת metadata של הסניפים.</div>
 </section>
 
 <div class="sect"><h2>📦 הצרכים שלנו</h2><small id="pcount"></small></div>
@@ -226,6 +236,8 @@ const NEEDS={
   other:{name:"",category:"כללי",dimension_type:"none",comparison_mode:"package",label:null,values:[],alternatives:false}
 };
 const SUPPORTED_NEEDS=new Set(["diapers","wipes","formula"]);
+const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be"];
+const CHAIN_LABELS={rami_levy:"רמי לוי",yochananof:"יוחננוף",shufersal:"שופרסל",be:"Be"};
 let session=null,household=null,member=null,items=[],alts=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null;
 const $=x=>document.getElementById(x),esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function view(id){["auth","onboard","app"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
@@ -247,7 +259,7 @@ async function loadAll(){
 async function invite(){let {data}=await sb.from("household_invites").select("code").eq("household_id",household.id).gt("expires_at",new Date().toISOString()).order("created_at",{ascending:false}).limit(1).maybeSingle();if(!data&&member.role==="owner"){let r=await sb.from("household_invites").insert({household_id:household.id}).select("code").single();data=r.data}$("code").textContent=data?.code||"אין קוד פעיל"}
 function subscribe(){
   if(channel)sb.removeChannel(channel);
-  channel=sb.channel("baby-v2-"+household.id)
+  channel=sb.channel("baby-v021-"+household.id)
     .on("postgres_changes",{event:"*",schema:"public",table:"products",filter:`household_id=eq.${household.id}`},loadAll)
     .on("postgres_changes",{event:"*",schema:"public",table:"product_alternatives",filter:`household_id=eq.${household.id}`},loadAll)
     .subscribe()
@@ -364,58 +376,168 @@ async function saveLocation(){
   if(error){msg("lmsg","לא הצלחתי לשמור: "+error.message,true);return}
   household=data;updateLocationButton();$("ldlg").close()
 }
+function cleanPilotCandidate(r,p){
+  const name=`${r.product_name||""} ${r.brand||""}`.toLowerCase();
+  if(p.need_key==="diapers" && /(מבוגרים|למבוגרים|adult|incontinence|שחייה|swim|חיתול לילה|חיתולי לילה|לילה האגיס)/i.test(name))return false;
+  if(p.need_key==="formula" && /(מחית|מחיות|צידנית|baby\s*food|puree|דייס)/i.test(name))return false;
+  return true;
+}
+function directQuote(r,p){
+  const branch=r.branch_name||`סניף ${r.branch_code}`;
+  return {
+    chain_id:r.chain_id,
+    chain:CHAIN_LABELS[r.chain_id]||r.chain_id,
+    branch_code:r.branch_code,
+    branch,
+    address:r.address||null,
+    city:r.city||null,
+    barcode:r.barcode,
+    brand:r.brand||"מותג לא ידוע",
+    product_name:r.product_name||"",
+    effective_price:Number(r.best_price),
+    package_quantity:r.canonical_package_quantity==null?null:Number(r.canonical_package_quantity),
+    package_unit:r.canonical_package_unit||null,
+    score:r.normalized_unit_price==null?null:Number(r.normalized_unit_price),
+    normalized_unit_label:r.normalized_unit_label||scoreLabel(p.comparison_mode),
+    preferred:!!p.preferred_barcode&&String(r.barcode)===String(p.preferred_barcode),
+    source_updated_at:r.source_updated_at,
+    is_promotion:false,
+    requires_club:false,
+    alternative_id:null
+  };
+}
 async function comparePrices(id){
   const p=items.find(x=>x.id===id);if(!p)return;
-  if(!household.city&&household.latitude==null){alert("קודם נגדיר את אזור החיפוש.");openLocation();return}
   currentNeed=p;lastCompare=null;selectedQuote=null;
+
+  if(!SUPPORTED_NEEDS.has(p.need_key)){
+    alert("השוואת המחירים האוטומטית זמינה כרגע לחיתולים, תמ״ל ומגבונים.");
+    return;
+  }
+  if(p.allow_alternatives===false&&!p.preferred_barcode){
+    alert("בחר מוצר מועדף לפי ברקוד, או אפשר הצגת מותגים חלופיים.");
+    return;
+  }
+
   $("ctitle").textContent="🔎 "+p.name+(p.need_detail?" · "+p.need_detail:"");
-  $("csub").textContent=`${p.preferred_barcode?"בודק את המוצר המועדף שלך וגם חלופות":"בודק את כל המותגים התואמים"} לפי ${MODES[p.comparison_mode]||MODES.unit}`;
-  $("clocation").textContent=household.city?`אזור: ${household.city} · רדיוס ${household.search_radius_km||10} ק״מ`:`GPS · רדיוס ${household.search_radius_km||10} ק״מ`;
-  $("cbody").className="loading";$("cbody").innerHTML="בודק מחירים אמיתיים באזור…";
+  $("csub").textContent=`השוואה ישירה בין 4 רשתות לפי ${MODES[p.comparison_mode]||MODES.unit}`;
+  $("clocation").innerHTML=`<b>אזור רצוי:</b> ${esc(household?.city||"לא הוגדר")} · ${household?.search_radius_km||10} ק״מ<br><span class="sub">Pilot: כרגע מוצג המחיר הזול שנמצא בכל רשת, ללא סינון מרחק אמיתי.</span>`;
+  $("cbody").className="loading";$("cbody").innerHTML="טוען מחירים מהמאגר שלנו…";
   $("purchasebox").classList.add("hidden");$("feedbackbox").classList.add("hidden");
   $("cdlg").showModal();
-  const {data,error}=await sb.functions.invoke("compare-baby-prices",{body:{product_id:id}});
+
+  let q=sb.from("baby_ui_best_prices")
+    .select("chain_id,branch_code,branch_name,city,address,barcode,need_key,dimension_type,dimension_value,brand,product_name,best_price,canonical_package_quantity,canonical_package_unit,normalized_unit_price,normalized_unit_label,quantity_source,source_updated_at")
+    .eq("need_key",p.need_key)
+    .in("chain_id",ACTIVE_CHAINS)
+    .not("normalized_unit_price","is",null);
+
+  if(p.dimension_type&&p.dimension_type!=="none"&&p.dimension_value){
+    q=q.eq("dimension_type",p.dimension_type).eq("dimension_value",String(p.dimension_value));
+  }
+  if(p.preferred_barcode&&p.allow_alternatives===false){
+    q=q.eq("barcode",String(p.preferred_barcode));
+  }
+
+  const {data,error}=await q.order("normalized_unit_price",{ascending:true}).limit(300);
   if(error){
-    let detail=error.message||"שגיאה";
-    try{ if(error.context){const j=await error.context.json();detail=j.message||j.error||detail} }catch(_){}
-    $("cbody").className="msg err";$("cbody").textContent=detail;return
+    $("cbody").className="msg err";
+    $("cbody").textContent="לא הצלחתי לטעון את המחירים: "+error.message;
+    return;
   }
-  if(data?.error){
-    $("cbody").className="msg err";$("cbody").textContent=data.message||data.error;return
+
+  let rows=(data||[]).filter(r=>cleanPilotCandidate(r,p));
+  let results=rows.map(r=>directQuote(r,p)).filter(r=>Number.isFinite(r.score)&&Number.isFinite(r.effective_price));
+
+  // Deduplicate exact chain+barcode entries defensively.
+  const dedup=new Map();
+  results.forEach(r=>{
+    const k=`${r.chain_id}|${r.barcode}`;
+    const old=dedup.get(k);
+    if(!old||r.score<old.score)dedup.set(k,r);
+  });
+  results=[...dedup.values()].sort((a,b)=>a.score-b.score||a.effective_price-b.effective_price);
+
+  const preferredResults=results.filter(r=>r.preferred);
+  const preferredBest=preferredResults[0]||null;
+  const alternativeBest=results.find(r=>!r.preferred)||null;
+
+  if(p.preferred_barcode&&p.allow_alternatives===false){
+    results=preferredResults;
   }
-  lastCompare=data;
+
+  const checked=[...new Map(results.map(r=>[r.barcode,{barcode:r.barcode,brand:r.brand}])).values()];
+  const savingsVsPreferred=(preferredBest&&alternativeBest&&alternativeBest.score<preferredBest.score)
+    ? preferredBest.score-alternativeBest.score
+    : null;
+
+  lastCompare={
+    source:"supabase_v021",
+    comparison_mode:p.comparison_mode||"unit",
+    candidates_checked:checked,
+    results,
+    preferred_best:preferredBest,
+    alternative_best:alternativeBest,
+    savings_vs_preferred:savingsVsPreferred,
+    preferred_barcode:p.preferred_barcode||null,
+    allow_alternatives:p.allow_alternatives!==false
+  };
   renderComparison();
 }
 function renderComparison(){
   const data=lastCompare;if(!data)return;
   const results=data.results||[];
-  if(!results.length){$("cbody").className="msg";$("cbody").textContent=data.message||"לא נמצאו מחירים באזור.";return}
+  if(!results.length){
+    $("cbody").className="msg";
+    $("cbody").innerHTML=currentNeed?.preferred_barcode
+      ?"לא נמצא כרגע מחיר למוצר המועדף בהגדרות שבחרת. אפשר לאפשר מותגים חלופיים ולנסות שוב."
+      :"לא נמצאו כרגע מחירים מתאימים במאגר.";
+    return;
+  }
+
   $("cbody").className="";
   const mode=data.comparison_mode||"unit";
   const checked=data.candidates_checked||[];
   const brands=[...new Set(checked.map(x=>x.brand).filter(Boolean))];
-  let summary=`${data.discovery_used?`<div class="msg">🧭 הקטלוג הורחב אוטומטית לפי המידה/שלב שבחרת.</div>`:""}<div class="loc-summary"><b>נבדקו ${checked.length} מוצרים מ-${brands.length} מותגים:</b><br>${brands.map(esc).join(" · ")}</div>`;
-  if(data.preferred_best){
-    if(data.savings_vs_preferred && data.alternative_best){
-      const unitText=mode==="unit"?"ליחידה":mode==="100g"?"ל־100 גרם":"";
-      summary+=`<div class="msg"><b>⭐ המוצר המועדף שלך:</b> ${esc(data.preferred_best.brand)} ב-${formatMoney(data.preferred_best.effective_price)}.<br><b>💡 חלופה זולה יותר:</b> ${esc(data.alternative_best.brand)} ב-${formatMoney(data.alternative_best.effective_price)} · חיסכון של ${Number(data.savings_vs_preferred).toFixed(3)} ₪ ${unitText}.</div>`;
+  const chainCount=new Set(results.map(r=>r.chain_id)).size;
+
+  let summary=`<div class="scope-note"><b>🧪 Pilot:</b> נמצאו ${results.length} הצעות עבור ${checked.length} מוצרים ב־${chainCount} רשתות. כרגע כל רשת מיוצגת במחיר הזול ביותר שנמצא בה, ולא לפי המרחק מהבית.</div>`;
+
+  if(data.preferred_barcode){
+    if(data.preferred_best){
+      summary+=`<div class="pref-box"><b>⭐ המוצר המועדף נמצא:</b> ${esc(data.preferred_best.brand)} · ${formatMoney(data.preferred_best.effective_price)} ב־${esc(data.preferred_best.chain)}.</div>`;
+      if(data.savings_vs_preferred && data.alternative_best){
+        summary+=`<div class="msg"><b>💡 קיימת חלופה זולה יותר:</b> ${esc(data.alternative_best.brand)} ב־${esc(data.alternative_best.chain)} · זולה בכ־${Number(data.savings_vs_preferred).toFixed(3)} ${scoreLabel(mode)}.</div>`;
+      }
     }else{
-      summary+=`<div class="msg"><b>🏆 המוצר המועדף שלך הוא גם הבחירה המשתלמת ביותר כרגע.</b></div>`;
+      summary+=`<div class="pref-box">⭐ הברקוד המועדף שלך לא נמצא כרגע בתוצאות${data.allow_alternatives?", לכן מוצגות חלופות תואמות.":"."}</div>`;
     }
   }else{
-    summary+=`<div class="msg">לא הוגדר מותג מועדף, לכן התוצאות מדורגות לפי המחיר המשתלם ביותר.</div>`;
+    summary+=`<div class="msg">לא הוגדר מותג מועדף. התוצאות מדורגות לפי המחיר המנורמל המשתלם ביותר.</div>`;
   }
-  $("cbody").innerHTML=summary+`<div class="result-list">${results.slice(0,10).map((r,i)=>`
+
+  if(currentNeed?.need_key==="formula"&&currentNeed?.allow_alternatives!==false){
+    summary+=`<div class="formula-warning">🍼 מותגי תמ״ל אחרים מוצגים להשוואת מחיר בלבד, לא כהמלצה להחליף את התמ״ל שבו משתמשים.</div>`;
+  }
+
+  $("cbody").innerHTML=summary+`<div class="result-list">${results.slice(0,16).map((r,i)=>`
     <div class="result-card ${i===0?"best":""}">
       <div class="result-head">
-        <div><b>${i===0?"🏆 ":""}${r.preferred?"⭐ ":""}${esc(r.brand)}${r.product_name?" · "+esc(r.product_name):""}</b>
-        <div class="meta">${esc(r.chain)} · ${esc(r.branch)}${r.address?" · "+esc(r.address):""}</div>
-        ${r.is_promotion?`<span class="promo">מבצע${r.requires_club?" · דורש מועדון":""}</span>`:""}</div>
-        <div style="text-align:left"><div class="price">${formatMoney(r.effective_price)}</div><div class="unit-price">${Number(r.score).toFixed(3)} ${scoreLabel(mode)}</div></div>
+        <div>
+          <b>${i===0?"🏆 ":""}${r.preferred?"⭐ ":""}${esc(r.brand)}${r.product_name?" · "+esc(r.product_name):""}</b>
+          <div><span class="chain-tag">${esc(r.chain)}</span></div>
+          <div class="meta">${esc(r.branch)}${r.address?" · "+esc(r.address):""}</div>
+        </div>
+        <div style="text-align:left">
+          <div class="price">${formatMoney(r.effective_price)}</div>
+          <div class="unit-price">${Number(r.score).toFixed(3)} ${esc(r.normalized_unit_label||scoreLabel(mode))}</div>
+        </div>
       </div>
-      <div class="meta" style="margin-top:6px">${r.package_quantity?`אריזה: ${esc(r.package_quantity)} ${esc(r.package_unit||"")}`:"כמות אריזה לא הוגדרה"} · ברקוד ${esc(r.barcode)}</div>
+      <div class="meta" style="margin-top:7px">${r.package_quantity?`אריזה: ${esc(r.package_quantity)} ${esc(r.package_unit||"")}`:"כמות אריזה לא זמינה"} · ברקוד ${esc(r.barcode)}</div>
+      ${r.source_updated_at?`<div class="data-fresh">מקור מחיר: ${new Date(r.source_updated_at).toLocaleString("he-IL",{dateStyle:"short",timeStyle:"short"})}</div>`:""}
       <button class="btn ${i===0?"primary":"soft"}" style="width:100%;margin-top:8px" data-buyidx="${i}">קניתי / רוצה לקנות כאן</button>
     </div>`).join("")}</div>`;
+
   $("feedbackbox").classList.remove("hidden");
 }
 function startPurchase(i){
@@ -442,7 +564,7 @@ async function savePurchase(){
   const ref=second?normalizedReference(second.score,r,lastCompare.comparison_mode):null;
   const savings=ref==null?null:Math.max(0,(ref-price)*count);
   const {error}=await sb.from("purchase_events").insert({
-    household_id:household.id,product_id:currentNeed.id,alternative_id:r.alternative_id,
+    household_id:household.id,product_id:currentNeed.id,alternative_id:r.alternative_id||null,
     chain_name:r.chain,branch_name:r.branch,paid_price:price,package_count:count,
     reference_price:ref,calculated_savings:savings,notes:$("purchasenote").value.trim()||null
   });
