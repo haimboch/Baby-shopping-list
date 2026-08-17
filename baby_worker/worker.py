@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import requests
+from urllib.parse import quote
 
 from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_stores, timestamp_from_filename, price_file_diagnostics
 from .supabase_rest import SupabaseREST
@@ -1353,7 +1354,7 @@ def _collect_shuf_be_targeted_official(
 
     session.headers.update({
         "User-Agent": (
-            "baby-price-worker/0.25 "
+            "baby-price-worker/0.26 "
             "(+targeted-branches)"
         ),
         "Accept": (
@@ -1860,6 +1861,294 @@ def _merge_source_passes(
     }
 
 
+
+OSHER_CHAIN_ID = "7290103152017"
+OSHER_CERBERUS_BASE = "https://url.retail.publishedprices.co.il"
+OSHER_USERNAME = "osherad"
+
+OSHER_FILE_RE = re.compile(
+    r'(?P<name>'
+    r'(?:Stores|PriceFull|Price)'
+    + OSHER_CHAIN_ID +
+    r'[^"\'<>\s]*?\.(?:gz|xml))',
+    re.I,
+)
+
+
+def _empty_osher_pass(
+    pass_name: str,
+    file_type: str,
+    limit: int,
+) -> dict[str, Any]:
+    return {
+        "pass_name": pass_name,
+        "file_types": [file_type],
+        "limit": limit,
+        "files_seen": 0,
+        "price_rows": [],
+        "promo_rows": [],
+        "store_rows": [],
+        "errors": [],
+        "kind_counts": {},
+        "sample_files": [],
+        "price_schema_diagnostics": [],
+    }
+
+
+def _extract_csrf(html_text: str) -> tuple[str | None, str | None]:
+    """Return (field_name, token) from Cerberus login HTML."""
+    patterns = [
+        r'<input[^>]+name=["\'](?P<name>csrftoken)["\'][^>]+value=["\'](?P<value>[^"\']+)["\']',
+        r'<input[^>]+value=["\'](?P<value>[^"\']+)["\'][^>]+name=["\'](?P<name>csrftoken)["\']',
+        r'id=["\']csrftoken["\'][^>]+value=["\'](?P<value>[^"\']+)["\']',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, html_text or "", re.I)
+        if m:
+            gd = m.groupdict()
+            return gd.get("name") or "csrftoken", gd.get("value")
+    return None, None
+
+
+def _extract_osher_files(html_text: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for m in OSHER_FILE_RE.finditer(html_text or ""):
+        name = html.unescape(m.group("name"))
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def _osher_kind(name: str) -> str | None:
+    low = name.lower()
+    if low.startswith("stores"):
+        return "stores"
+    if low.startswith("pricefull"):
+        return "price_full"
+    if low.startswith("price"):
+        return "price"
+    return None
+
+
+def _osher_branch_from_name(name: str) -> str:
+    # Typical shape:
+    # PriceFull7290103152017-001-YYYYMMDDHHMM.gz
+    # If a newer provider inserts another field, the second token remains a
+    # useful branch candidate for deduplication but never controls DB routing.
+    stem = name.rsplit(".", 1)[0]
+    tail = stem.split(OSHER_CHAIN_ID, 1)[-1].lstrip("-")
+    parts = tail.split("-")
+    return parts[0] if parts else ""
+
+
+def _select_osher_files(
+    names: list[str],
+    kind: str,
+    limit: int,
+) -> list[str]:
+    candidates = [n for n in names if _osher_kind(n) == kind]
+    # Filenames are time-sortable in Cerberus. Keep the newest per branch
+    # where possible, then take newest overall.
+    by_branch: dict[str, str] = {}
+    for name in sorted(candidates):
+        branch = _osher_branch_from_name(name) or name
+        current = by_branch.get(branch)
+        if current is None or name > current:
+            by_branch[branch] = name
+    return sorted(by_branch.values(), reverse=True)[:limit]
+
+
+def _download_osher_http_file(
+    session: requests.Session,
+    file_name: str,
+) -> bytes:
+    url = (
+        OSHER_CERBERUS_BASE
+        + "/file/d/"
+        + quote(file_name, safe="")
+    )
+    response = session.get(url, timeout=45)
+    response.raise_for_status()
+    return response.content
+
+
+def _collect_osher_http_direct(
+    *,
+    stores_limit: int = 1,
+    full_limit: int = 30,
+    incremental_limit: int = 20,
+    max_pages: int = 12,
+    session: requests.Session | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Direct HTTP fallback for Osher Ad's Cerberus publication site.
+
+    Uses the public account documented by the chain/source:
+    username=osherad, blank password.
+    """
+    owns_session = session is None
+    session = session or requests.Session()
+    session.headers.update({
+        "User-Agent": "baby-price-worker/0.26 (+osher-ad-direct-http)",
+        "Accept": "text/html,application/xhtml+xml,*/*",
+    })
+
+    diagnostics: dict[str, Any] = {
+        "base": OSHER_CERBERUS_BASE,
+        "username": OSHER_USERNAME,
+        "login_get_status": None,
+        "login_post_status": None,
+        "login_final_url": None,
+        "csrf_found": False,
+        "cookies_after_login": [],
+        "pages_scanned": 0,
+        "filenames_found": 0,
+        "filename_samples": [],
+        "errors": [],
+    }
+
+    stores_pass = _empty_osher_pass("stores_http", "STORE_FILE", stores_limit)
+    full_pass = _empty_osher_pass("full_http", "PRICE_FULL_FILE", full_limit)
+    inc_pass = _empty_osher_pass("incremental_http", "PRICE_FILE", incremental_limit)
+
+    try:
+        login = session.get(
+            OSHER_CERBERUS_BASE + "/login",
+            timeout=30,
+        )
+        diagnostics["login_get_status"] = login.status_code
+        login.raise_for_status()
+
+        csrf_name, csrf_value = _extract_csrf(login.text)
+        diagnostics["csrf_found"] = bool(csrf_value)
+        if not csrf_value:
+            raise RuntimeError("Cerberus login page did not expose csrftoken")
+
+        payload = {
+            "username": OSHER_USERNAME,
+            "password": "",
+            csrf_name or "csrftoken": csrf_value,
+        }
+
+        logged = session.post(
+            OSHER_CERBERUS_BASE + "/login/user",
+            data=payload,
+            timeout=30,
+            allow_redirects=True,
+        )
+        diagnostics["login_post_status"] = logged.status_code
+        diagnostics["login_final_url"] = logged.url
+        diagnostics["cookies_after_login"] = sorted(
+            c.name for c in session.cookies
+        )
+        logged.raise_for_status()
+
+        # If authentication failed Cerberus usually lands back on /login.
+        if "/login" in (logged.url or "").lower():
+            body_low = (logged.text or "").lower()
+            if "sign in" in body_low or "client login" in body_low:
+                raise RuntimeError("Cerberus authentication returned to login page")
+
+        all_names: list[str] = []
+        seen_names: set[str] = set()
+        empty_pages = 0
+
+        # Cerberus historically loads the file table dynamically. In some
+        # versions /file still returns the rendered records; page=N is also
+        # supported by older deployments. We scan both the post-login body and
+        # /file pages.
+        for body in [logged.text]:
+            for name in _extract_osher_files(body):
+                if name not in seen_names:
+                    seen_names.add(name)
+                    all_names.append(name)
+
+        for page in range(1, max_pages + 1):
+            response = session.get(
+                OSHER_CERBERUS_BASE + "/file",
+                params={"page": page},
+                timeout=30,
+            )
+            response.raise_for_status()
+            diagnostics["pages_scanned"] += 1
+
+            page_names = _extract_osher_files(response.text)
+            new_count = 0
+            for name in page_names:
+                if name not in seen_names:
+                    seen_names.add(name)
+                    all_names.append(name)
+                    new_count += 1
+
+            if new_count == 0:
+                empty_pages += 1
+            else:
+                empty_pages = 0
+
+            # Once we have enough full files plus a Stores file, no need to
+            # crawl every historical page.
+            have_store = any(_osher_kind(n) == "stores" for n in all_names)
+            have_full = len([n for n in all_names if _osher_kind(n) == "price_full"]) >= full_limit
+            if have_store and have_full:
+                break
+            if empty_pages >= 2 and page >= 2:
+                break
+
+        diagnostics["filenames_found"] = len(all_names)
+        diagnostics["filename_samples"] = all_names[:20]
+
+        selections = [
+            ("stores", _select_osher_files(all_names, "stores", stores_limit), stores_pass),
+            ("price_full", _select_osher_files(all_names, "price_full", full_limit), full_pass),
+            ("price", _select_osher_files(all_names, "price", incremental_limit), inc_pass),
+        ]
+
+        for expected_kind, selected, target_pass in selections:
+            for file_name in selected:
+                try:
+                    content = _download_osher_http_file(session, file_name)
+                    kind = file_kind(file_name)
+
+                    if kind == "stores":
+                        rows = parse_stores(content, "OSHER_AD", file_name)
+                        target_pass["store_rows"].extend(rows)
+                    elif kind in {"price", "price_full"}:
+                        rows = parse_price_rows(content, "OSHER_AD", file_name)
+                        target_pass["price_rows"].extend(rows)
+                        if (
+                            not rows
+                            and len(target_pass["price_schema_diagnostics"]) < 3
+                        ):
+                            target_pass["price_schema_diagnostics"].append(
+                                price_file_diagnostics(content, file_name)
+                            )
+
+                    target_pass["files_seen"] += 1
+                    target_pass["kind_counts"][expected_kind] = (
+                        target_pass["kind_counts"].get(expected_kind, 0) + 1
+                    )
+                    if len(target_pass["sample_files"]) < 12:
+                        target_pass["sample_files"].append(file_name)
+
+                except Exception as exc:
+                    target_pass["errors"].append(
+                        f"{file_name}: {type(exc).__name__}: {exc}"
+                    )
+
+        return [stores_pass, full_pass, inc_pass], diagnostics
+
+    except Exception as exc:
+        diagnostics["errors"].append(
+            f"{type(exc).__name__}: {exc}"
+        )
+        return [stores_pass, full_pass, inc_pass], diagnostics
+
+    finally:
+        if owns_session:
+            session.close()
+
+
 async def collect_source(
     scraper_name: str,
     file_limit: int | None,
@@ -2038,16 +2327,7 @@ async def collect_source(
         return data
 
     if scraper_name == "OSHER_AD":
-        # Osher Ad is a relatively small chain. On bootstrap we deliberately
-        # collect the Stores file plus enough PriceFull files to cover the
-        # whole network, instead of trusting WORKER_FILE_LIMIT=20.
-        stores_pass = await _collect_scraper_pass(
-            scraper_name,
-            file_types=["STORE_FILE"],
-            limit=1,
-            pass_name="stores",
-        )
-
+        stores_limit = 1
         full_limit = int(
             os.environ.get(
                 "OSHER_AD_FULL_FILE_LIMIT",
@@ -2061,6 +2341,14 @@ async def collect_source(
             )
         )
 
+        # First use the maintained library. If it returns zero files, fall
+        # back to the chain's public Cerberus HTTP publication interface.
+        stores_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["STORE_FILE"],
+            limit=stores_limit,
+            pass_name="stores",
+        )
         full_pass = await _collect_scraper_pass(
             scraper_name,
             file_types=["PRICE_FULL_FILE"],
@@ -2074,13 +2362,39 @@ async def collect_source(
             pass_name="incremental",
         )
 
+        library_files_seen = (
+            stores_pass["files_seen"]
+            + full_pass["files_seen"]
+            + incremental_pass["files_seen"]
+        )
+
+        direct_http_used = False
+        direct_http_diagnostics = None
+
+        if library_files_seen == 0:
+            direct_http_used = True
+            http_passes, direct_http_diagnostics = (
+                _collect_osher_http_direct(
+                    stores_limit=stores_limit,
+                    full_limit=full_limit,
+                    incremental_limit=incremental_limit,
+                    max_pages=int(
+                        os.environ.get(
+                            "OSHER_AD_HTTP_MAX_PAGES",
+                            "12",
+                        )
+                    ),
+                )
+            )
+            stores_pass, full_pass, incremental_pass = http_passes
+
         data = _merge_source_passes(
             scraper_name,
             file_limit,
             [stores_pass, full_pass, incremental_pass],
         )
         data["scrape_file_limit"] = {
-            "stores": 1,
+            "stores": stores_limit,
             "full": full_limit,
             "incremental": incremental_limit,
         }
@@ -2094,7 +2408,14 @@ async def collect_source(
             "target_branches_from_metadata": sorted(
                 _target_codes(target_plan, "osher_ad")
             ),
-            "coverage_mode": "full_small_chain_bootstrap",
+            "coverage_mode": (
+                "direct_cerberus_http"
+                if direct_http_used
+                else "library"
+            ),
+            "library_files_seen_before_fallback": library_files_seen,
+            "direct_http_used": direct_http_used,
+            "direct_http_diagnostics": direct_http_diagnostics,
         }
         return data
 
