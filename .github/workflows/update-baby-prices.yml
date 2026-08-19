@@ -1,15 +1,15 @@
 name: Update Baby Prices
 
 on:
-  workflow_dispatch:
-    inputs:
-      file_limit:
-        description: "Maximum feed files per scraper"
-        required: true
-        default: "20"
   schedule:
     - cron: "17 */4 * * *"
       timezone: "Asia/Jerusalem"
+  workflow_dispatch:
+    inputs:
+      file_limit:
+        description: "Maximum incremental files per source"
+        required: false
+        default: "20"
 
 permissions:
   contents: read
@@ -23,11 +23,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CHEAPERSAL_API_KEY: ${{ secrets.CHEAPERSAL_API_KEY }}
+      ENABLED_CHAINS: "shufersal,be,rami_levy,yochananof,osher_ad"
+      ENRICHMENT_LIMIT: "8"
+      PYTHONUNBUFFERED: "1"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -35,26 +43,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Resolve file limit
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "WORKER_FILE_LIMIT=20" >> "$GITHUB_ENV"
-          else
-            echo "WORKER_FILE_LIMIT=${{ inputs.file_limit }}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Worker self-test
-        env:
-          PYTHONUNBUFFERED: "1"
+      - name: Self test
         run: python self_test.py
 
-      - name: Update baby prices
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          CHEAPERSAL_API_KEY: ${{ secrets.CHEAPERSAL_API_KEY }}
-          ENABLED_CHAINS: "shufersal,be,rami_levy,yochananof,osher_ad"
-          ENRICHMENT_LIMIT: "8"
-          PYTHONUNBUFFERED: "1"
-        run: python run_worker.py
+      - name: Update price feeds
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            export WORKER_FILE_LIMIT="${{ inputs.file_limit }}"
+          else
+            export WORKER_FILE_LIMIT="20"
+          fi
+          python run_worker.py
+
+      - name: Generate notification events from fresh prices
+        shell: bash
+        run: |
+          curl --fail-with-body --silent --show-error             --request POST             "${SUPABASE_URL}/rest/v1/rpc/generate_price_notification_events_v035"             --header "apikey: ${SUPABASE_SERVICE_ROLE_KEY}"             --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}"             --header "Content-Type: application/json"             --data '{}'
