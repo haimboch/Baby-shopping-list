@@ -1,0 +1,37 @@
+name: Scan Baby Notifications
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Update Baby Prices"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: baby-notification-scan
+  cancel-in-progress: true
+
+jobs:
+  scan-deals:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate in-app price notifications
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Scanning tracked household products for fresh local deals..."
+          curl --fail-with-body --silent --show-error \
+            -X POST "$SUPABASE_URL/rest/v1/rpc/scan_deal_notifications_v032" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}'
+          echo
+          echo "Notification scan complete."
