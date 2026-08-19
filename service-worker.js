@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v0321-shell";
+const CACHE="baby-smart-v033-dashboard";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{
