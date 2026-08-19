@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Pilot v0.32</title>
+<title>Baby Smart List · Pilot v0.32.1</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -254,7 +254,7 @@ body{background:linear-gradient(180deg,#f6f7fb 0,#f7f8fb 45%,#f2f4f8 100%)}
 </div>
 <section id="products" class="products"></section>
 </main>
-<div class="app-footnote">Baby Smart List · Pilot v0.32 · Notifications</div>
+<div class="app-footnote">Baby Smart List · Pilot v0.32.1 · Notifications Hotfix</div>
 <button class="fab" id="add">＋ צורך</button>
 </div>
 
@@ -380,6 +380,7 @@ body{background:linear-gradient(180deg,#f6f7fb 0,#f7f8fb 45%,#f2f4f8 100%)}
 <div class="notif-head-actions">
   <button class="btn soft" id="nmarkall">✓ סמן הכל כנקרא</button>
   <button class="btn" id="nrefresh">↻ רענן</button>
+  <button class="btn danger" id="nreset">🧹 אפס התראות</button>
 </div>
 
 <div id="notifList" class="notif-list"></div>
@@ -709,6 +710,7 @@ function renderNotificationDialog(){
   const unread=notifications.filter(n=>!n.read_at).length;
   $("notifSub").textContent=unread?`${unread} ${unread===1?"התראה חדשה":"התראות חדשות"}`:"אין כרגע התראות חדשות";
   $("nmarkall").disabled=unread===0;
+  $("nreset").disabled=notifications.length===0;
   $("notifList").innerHTML=notifications.length?notifications.map(n=>`
     <button class="notif-item ${n.read_at?"":"unread"}" data-notif="${n.id}">
       <span class="notif-icon">${notifIcon(n.notification_type)}</span>
@@ -743,6 +745,15 @@ async function markAllNotifications(){
   if(error)return alert("לא הצלחתי לסמן את ההתראות כנקראו.");
   notifications.forEach(n=>{if(!n.read_at)n.read_at=now});
   renderNotifBadge();renderNotificationDialog()
+}
+async function resetNotifications(){
+  if(!household||!session)return;
+  if(!confirm("למחוק את כל ההתראות שלך מהמכשיר ומהמרכז?"))return;
+  const {data,error}=await sb.rpc("reset_my_notifications",{p_household_id:household.id});
+  if(error)return alert("לא הצלחתי לאפס את ההתראות: "+error.message);
+  notifications=[];
+  renderNotifBadge();
+  renderNotificationDialog();
 }
 async function saveNotifPref(field,value){
   const payload={household_id:household.id,user_id:session.user.id,[field]:value,updated_at:new Date().toISOString()};
@@ -1450,6 +1461,7 @@ $("notificationsBtn").onclick=openNotifications;
 $("nclose").onclick=()=>$("ndlg").close();
 $("nrefresh").onclick=loadNotifications;
 $("nmarkall").onclick=markAllNotifications;
+$("nreset").onclick=resetNotifications;
 $("notifList").onclick=async e=>{
   const b=e.target.closest("[data-notif]");if(!b)return;
   const n=notifications.find(x=>x.id===b.dataset.notif);
