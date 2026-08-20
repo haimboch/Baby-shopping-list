@@ -21,14 +21,21 @@ concurrency:
 jobs:
   update-prices:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       CHEAPERSAL_API_KEY: ${{ secrets.CHEAPERSAL_API_KEY }}
-      ENABLED_CHAINS: "shufersal,be,rami_levy,yochananof,osher_ad"
+      ENABLED_CHAINS: "shufersal,be,rami_levy,yochananof,osher_ad,super_pharm,ksp"
       ENRICHMENT_LIMIT: "8"
+      KSP_MAX_ITEMS: "120"
+      KSP_CATEGORY_PAGES: "3"
+      KSP_SEARCH_LIMIT: "80"
+      SUPER_PHARM_FULL_FILE_LIMIT: "30"
+      SUPER_PHARM_INCREMENTAL_FILE_LIMIT: "30"
+      SUPER_PHARM_PROMO_FULL_FILE_LIMIT: "30"
+      SUPER_PHARM_PROMO_INCREMENTAL_FILE_LIMIT: "30"
       PYTHONUNBUFFERED: "1"
 
     steps:
@@ -56,7 +63,13 @@ jobs:
           fi
           python run_worker.py
 
-      - name: Generate notification events from fresh prices
+      - name: Generate price notifications
         shell: bash
         run: |
-          curl --fail-with-body --silent --show-error             --request POST             "${SUPABASE_URL}/rest/v1/rpc/generate_price_notification_events_v035"             --header "apikey: ${SUPABASE_SERVICE_ROLE_KEY}"             --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}"             --header "Content-Type: application/json"             --data '{}'
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            "${SUPABASE_URL}/rest/v1/rpc/generate_price_notification_events_v035" \
+            --header "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --header "Content-Type: application/json" \
+            --data '{}'
