@@ -1,6 +1,14 @@
 from baby_worker.classifier import classify_need, parse_dimension, parse_package_quantity
 from baby_worker.ksp import parse_ksp_product_html
-from baby_worker.worker import _sp_candidates_from_html, merge_prices_and_promos
+from baby_worker.superpharm_online import (
+    extract_superpharm_product_urls,
+    parse_superpharm_product_html,
+)
+from baby_worker.worker import (
+    _sp_candidates_from_html,
+    assess_ingestion_outcome,
+    merge_prices_and_promos,
+)
 from baby_worker.xmlfeeds import parse_price_rows, parse_promotions, parse_stores
 
 def test_classifier():
@@ -99,6 +107,23 @@ def test_ksp_official_product_parser():
     assert parsed["promo_row"]["promo_price"] == 39.9
 
 
+def test_ksp_print_page_fallback_parser():
+    page = """<html><body>
+      שם המוצר: Pampers חיתולים מידה 4 44 יחידות
+      מספר מוצר: 440079 תאריך תוקף: 20-08-2026
+      מחיר אשראי: 39.90 ₪ ברקוד: 8700216596701
+    </body></html>"""
+    parsed = parse_ksp_product_html(
+        page,
+        "https://ksp.co.il/mob/item/440079",
+        expected_need="diapers",
+        fetched_at="2026-08-20T12:00:00+00:00",
+    )
+    assert parsed is not None
+    assert parsed["price_row"]["regular_price"] == 39.9
+    assert parsed["price_row"]["barcode"] == "8700216596701"
+
+
 def test_superpharm_promo_filename_and_merge():
     filename = "Promo7290172900007-000-123-20260819-120000.gz"
     links = _sp_candidates_from_html(f'<a href="Download/{filename}">{filename}</a>')
@@ -118,3 +143,69 @@ def test_superpharm_promo_filename_and_merge():
     merged = merge_prices_and_promos(prices, promos)
     assert merged[0]["effective_price"] == 40
     assert merged[0]["requires_club"] is True
+
+
+def test_superpharm_online_product_and_promo_parser():
+    page = """<html><head>
+      <meta property="og:title" content="האגיס - מגבונים לחים לתינוק ללא בישום">
+      <script type="application/ld+json">{
+        "@type":"Product", "name":"מגבונים לחים לתינוק ללא בישום מארז רביעייה",
+        "gtin13":"7290000195537", "brand":{"name":"האגיס"},
+        "regularPrice":"28.90", "offers":{"price":"17.90"}
+      }</script>
+    </head><body>
+      <h1>מגבונים לחים לתינוק ללא בישום מארז רביעייה</h1>
+      <div>28.90</div><div>17.90</div><div>המחיר בתוקף עד 25.08.2026</div>
+      <div>ברקוד מוצר: 7290000195537</div>
+    </body></html>"""
+    parsed = parse_superpharm_product_html(
+        page,
+        "https://shop.super-pharm.co.il/example/p/263254",
+        expected_need="wipes",
+        fetched_at="2026-08-20T12:00:00+00:00",
+    )
+    assert parsed is not None
+    assert parsed["price_row"]["regular_price"] == 28.9
+    assert parsed["promo_row"]["promo_price"] == 17.9
+    assert parsed["promo_row"]["promo_end_at"] == "2026-08-25T23:59:59+00:00"
+
+
+def test_superpharm_online_multi_buy_parser():
+    page = """<html><head><script type="application/ld+json">{
+      "@type":"Product", "name":"פמפרס חיתולים מידה 2 39 יחידות",
+      "gtin13":"8006540156551", "brand":{"name":"פמפרס"},
+      "offers":{"price":"57.90"}
+    }</script></head><body>
+      <h1>פמפרס חיתולים מידה 2 39 יחידות</h1>
+      <div>57.90</div><div>מחיר ל-2 יחידות 85 ₪</div>
+      <div>ברקוד מוצר: 8006540156551</div>
+    </body></html>"""
+    parsed = parse_superpharm_product_html(
+        page,
+        "https://shop.super-pharm.co.il/example/p/625472",
+        expected_need="diapers",
+    )
+    assert parsed is not None
+    assert parsed["promo_row"]["promo_price"] == 42.5
+    assert parsed["promo_row"]["promo_min_quantity"] == 2
+    assert parsed["promo_row"]["promo_total_price"] == 85
+
+
+def test_superpharm_category_product_url_extraction():
+    page = """<a href="/infants/diapers/item-name/p/625472?source=grid">מוצר</a>
+    <script>{"url":"/infants/wipes/other/p/263254"}</script>"""
+    urls = extract_superpharm_product_urls(page)
+    assert urls == [
+        "https://shop.super-pharm.co.il/infants/diapers/item-name/p/625472",
+        "https://shop.super-pharm.co.il/infants/wipes/other/p/263254",
+    ]
+
+
+def test_strict_source_outcome_is_not_false_success():
+    blocked_data = {
+        "files_seen": 0,
+        "errors": ["blocked HTTP 403 from retailer"],
+    }
+    assert assess_ingestion_outcome("KSP", blocked_data, 0)[0] == "failed"
+    assert assess_ingestion_outcome("SUPER_PHARM", {"files_seen": 1}, 0)[0] == "partial"
+    assert assess_ingestion_outcome("KSP", blocked_data, 1) == ("success", None)
