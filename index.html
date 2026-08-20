@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.33</title>
+<title>Baby Smart List · Dashboard v0.34</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -85,6 +85,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 .result-list{display:grid;gap:9px;margin-top:12px}.result-card{border:1px solid var(--line);border-radius:14px;padding:12px}.result-card.best{border:2px solid #68bda0;background:#f5fffb}
 .result-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.price{font-size:1.28rem;font-weight:900}.unit-price{font-size:.8rem;color:var(--muted);margin-top:2px}
 .promo{display:inline-block;background:#fff1f3;color:#b33149;border-radius:999px;padding:4px 7px;font-size:.7rem;font-weight:800;margin-top:5px}
+.promo-terms{margin-top:7px;padding:8px 9px;border-radius:10px;background:#fff8f1;color:#78450d;font-size:.73rem;line-height:1.45}.old-price{font-size:.74rem;color:var(--muted);text-decoration:line-through}.online-badge{display:inline-block;background:#eef5ff;color:#245a9a;border-radius:999px;padding:4px 7px;font-size:.7rem;font-weight:800;margin-top:5px}
 .loc-summary{background:#f7f7fb;border:1px solid var(--line);border-radius:12px;padding:10px;font-size:.83rem;margin:10px 0}
 .loading{padding:30px;text-align:center;color:var(--muted)}.feedback{border-top:1px solid var(--line);margin-top:15px;padding-top:12px}.feedback .actions{margin-top:8px}
 .purchase-box{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}.saving{font-weight:900;color:#087c58}
@@ -330,7 +331,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.33</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.34</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -561,8 +562,9 @@ const DASHBOARD_CATEGORIES=[
   ]}
 ];
 const SUPPORTED_NEEDS=new Set(["diapers","wipes","formula"]);
-const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be","osher_ad"];
-const CHAIN_LABELS={rami_levy:"רמי לוי",yochananof:"יוחננוף",shufersal:"שופרסל",be:"Be",osher_ad:"אושר עד"};
+const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be","osher_ad","super_pharm","ksp"];
+const ONLINE_CHAINS=new Set(["ksp"]);
+const CHAIN_LABELS={rami_levy:"רמי לוי",yochananof:"יוחננוף",shufersal:"שופרסל",be:"Be",osher_ad:"אושר עד",super_pharm:"סופר־פארם",ksp:"KSP"};
 function normPlace(v){
   return String(v||"").trim().toLowerCase().replace(/[\u200e\u200f]/g,"").replace(/\s+/g," ");
 }
@@ -1333,9 +1335,17 @@ function freshnessRank(r){
   return 2;
 }
 
+function promotionIsActive(r){
+  const now=Date.now(),start=r?.promo_start_at?new Date(r.promo_start_at).getTime():null,end=r?.promo_end_at?new Date(r.promo_end_at).getTime():null;
+  if(start&&Number.isFinite(start)&&start>now)return false;
+  if(end&&Number.isFinite(end)&&end<now)return false;
+  return Number(r?.promo_price)>0&&Number(r?.regular_price)>Number(r?.promo_price);
+}
+
 function directQuote(r,p){
   const branch=r.branch_name||`סניף ${r.branch_code}`;
   const freshness=priceFreshness(r);
+  const activePromotion=promotionIsActive(r);
   return {
     chain_id:r.chain_id,
     chain:CHAIN_LABELS[r.chain_id]||r.chain_id,
@@ -1362,8 +1372,16 @@ function directQuote(r,p){
     freshness_age_hours:freshness.age_hours,
     freshness_label:freshness.label,
     freshness_css:freshness.css,
-    is_promotion:false,
-    requires_club:false,
+    regular_price:r.regular_price==null?null:Number(r.regular_price),
+    promo_price:r.promo_price==null?null:Number(r.promo_price),
+    promo_description:r.promo_description||null,
+    promo_start_at:r.promo_start_at||null,
+    promo_end_at:r.promo_end_at||null,
+    promo_min_quantity:r.promo_min_quantity==null?1:Number(r.promo_min_quantity),
+    promo_total_price:r.promo_total_price==null?null:Number(r.promo_total_price),
+    is_promotion:activePromotion,
+    requires_club:!!r.requires_club,
+    is_online:ONLINE_CHAINS.has(r.chain_id),
     alternative_id:null
   };
 }
@@ -1383,16 +1401,10 @@ async function comparePrices(id){
   $("ctitle").textContent="🔎 "+p.name+(p.need_detail?" · "+p.need_detail:"");
   const radiusKm=Number(household?.search_radius_km||10);
   $("csub").textContent=`השוואה בין ${ACTIVE_CHAINS.length} רשתות לפי ${MODES[p.comparison_mode]||MODES.unit}`;
-  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">מחירים מסניפים בטווח שבחרת. מחיר ישן מדי מוצג בשקיפות אך לא מסומן כעסקה הטובה ביותר.</span>`;
+  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">סניפים בטווח שבחרת, יחד עם הצעות אונליין מ־KSP. מחיר ישן מדי מוצג בשקיפות אך לא מסומן כעסקה הטובה ביותר.</span>`;
   $("cbody").className="loading";$("cbody").innerHTML="מחשב סניפים בטווח וטוען מחירים…";
   $("purchasebox").classList.add("hidden");$("feedbackbox").classList.add("hidden");
   $("cdlg").showModal();
-
-  if(!hasCoords(household)){
-    $("cbody").className="msg err";
-    $("cbody").innerHTML='לא נשמרה נקודת מרכז. פתח את <b>אזור החיפוש</b> ובחר GPS או מרכז עיר.';
-    return;
-  }
 
   const {data:branchData,error:branchError}=await sb.from("retail_branches")
     .select("chain_id,branch_code,branch_name,city,address,latitude,longitude")
@@ -1405,26 +1417,28 @@ async function comparePrices(id){
   }
 
   const allBranches=branchData||[];
-  const geocodedBranches=allBranches.filter(hasCoords);
+  const onlineBranches=allBranches.filter(b=>ONLINE_CHAINS.has(b.chain_id));
+  const geocodedBranches=allBranches.filter(b=>!ONLINE_CHAINS.has(b.chain_id)&&hasCoords(b));
   const missingCoordCount=allBranches.length-geocodedBranches.length;
-  const localBranches=geocodedBranches.map(b=>({
+  const localBranches=hasCoords(household)?geocodedBranches.map(b=>({
     ...b,
     distance_km:haversineKm(household.latitude,household.longitude,b.latitude,b.longitude)
-  })).filter(b=>b.distance_km<=radiusKm).sort((a,b)=>a.distance_km-b.distance_km);
+  })).filter(b=>b.distance_km<=radiusKm).sort((a,b)=>a.distance_km-b.distance_km):[];
 
-  const localKeys=new Set(localBranches.map(b=>`${b.chain_id}|${b.branch_code}`));
-  const localCodes=[...new Set(localBranches.map(b=>String(b.branch_code)))];
-  if(!localBranches.length){
+  const scopeBranches=[...localBranches,...onlineBranches.map(b=>({...b,distance_km:null}))];
+  const scopeKeys=new Set(scopeBranches.map(b=>`${b.chain_id}|${b.branch_code}`));
+  const scopeCodes=[...new Set(scopeBranches.map(b=>String(b.branch_code)))];
+  if(!scopeBranches.length){
     $("cbody").className="msg";
-    $("cbody").innerHTML=`לא נמצא כרגע אף סניף עם coordinates בתוך ${radiusKm} ק״מ. נסה להגדיל את הרדיוס.${missingCoordCount?`<br><span class="sub">${missingCoordCount} סניפים עדיין ממתינים ל-geocoding.</span>`:""}`;
+    $("cbody").innerHTML=`לא נמצאו כרגע סניפים בטווח או הצעות אונליין. נסה להגדיל את הרדיוס.${missingCoordCount?`<br><span class="sub">${missingCoordCount} סניפים עדיין ממתינים ל-geocoding.</span>`:""}`;
     return;
   }
 
   let q=sb.from("baby_normalized_prices")
-    .select("chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,effective_price,canonical_package_quantity,canonical_package_unit,normalized_unit_price,normalized_unit_label,quantity_source,source_updated_at,last_seen_at")
+    .select("chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,regular_price,promo_price,effective_price,promo_description,promo_start_at,promo_end_at,promo_min_quantity,promo_total_price,requires_club,canonical_package_quantity,canonical_package_unit,normalized_unit_price,normalized_unit_label,quantity_source,source_updated_at,last_seen_at")
     .eq("need_key",p.need_key)
     .in("chain_id",ACTIVE_CHAINS)
-    .in("branch_code",localCodes)
+    .in("branch_code",scopeCodes)
     .not("normalized_unit_price","is",null)
     .eq("unresolved_quantity_conflict",false);
   if(p.dimension_type&&p.dimension_type!=="none"&&p.dimension_value){q=q.eq("dimension_type",p.dimension_type).eq("dimension_value",String(p.dimension_value));}
@@ -1432,9 +1446,9 @@ async function comparePrices(id){
   const {data,error}=await q.order("normalized_unit_price",{ascending:true}).limit(500);
   if(error){$("cbody").className="msg err";$("cbody").textContent="לא הצלחתי לטעון את המחירים: "+error.message;return;}
 
-  const bmap=new Map(localBranches.map(b=>[`${b.chain_id}|${b.branch_code}`,b]));
+  const bmap=new Map(scopeBranches.map(b=>[`${b.chain_id}|${b.branch_code}`,b]));
   let rows=(data||[])
-    .filter(r=>localKeys.has(`${r.chain_id}|${r.branch_code}`))
+    .filter(r=>scopeKeys.has(`${r.chain_id}|${r.branch_code}`))
     .map(r=>({...r,...(bmap.get(`${r.chain_id}|${r.branch_code}`)||{})}))
     .filter(r=>cleanPilotCandidate(r,p));
 
@@ -1443,8 +1457,7 @@ async function comparePrices(id){
     return q;
   }).filter(r=>Number.isFinite(r.score)&&Number.isFinite(r.effective_price));
 
-  // v0.22 ranks local branches only. First choose the cheapest local branch
-  // per chain+barcode, then compare products/chains.
+  // First choose the best eligible local/online offer per chain+barcode.
   const localBest=new Map();
   results.forEach(r=>{
     const k=`${r.chain_id}|${r.barcode}`;
@@ -1498,7 +1511,7 @@ async function comparePrices(id){
   const freshCount=results.length-staleCount;
 
   lastCompare={
-    source:"supabase_v029_price_freshness",
+    source:"supabase_v034_promotions_online",
     comparison_mode:p.comparison_mode||"unit",
     candidates_checked:checked,
     results,
@@ -1509,7 +1522,8 @@ async function comparePrices(id){
     allow_alternatives:p.allow_alternatives!==false,
     radius_km:radiusKm,
     branches_in_radius:localBranches.length,
-    branches_missing_coordinates:missingCoordCount,
+    online_sources:onlineBranches.length,
+    branches_missing_coordinates:Math.max(0,missingCoordCount-onlineBranches.length),
     fresh_result_count:freshCount,
     stale_result_count:staleCount,
     fresh_hours:PRICE_FRESH_HOURS,
@@ -1534,7 +1548,7 @@ function renderComparison(){
   const brands=[...new Set(checked.map(x=>x.brand).filter(Boolean))];
   const chainCount=new Set(results.map(r=>r.chain_id)).size;
 
-  let summary=`<div class="scope-note"><b>📍 רדיוס ${data.radius_km||household?.search_radius_km||10} ק״מ:</b> נמצאו ${results.length} הצעות עבור ${checked.length} מוצרים ב־${chainCount} רשתות, מתוך ${data.branches_in_radius||0} סניפים בטווח.${data.branches_missing_coordinates?` <span class="sub">${data.branches_missing_coordinates} סניפים ללא coordinates לא נכללו.</span>`:""}</div>`;
+  let summary=`<div class="scope-note"><b>📍 מקומי + אונליין:</b> נמצאו ${results.length} הצעות עבור ${checked.length} מוצרים ב־${chainCount} רשתות — מתוך ${data.branches_in_radius||0} סניפים ברדיוס ${data.radius_km||household?.search_radius_km||10} ק״מ${data.online_sources?` ובנוסף ${data.online_sources} מקור אונליין`:""}.${data.branches_missing_coordinates?` <span class="sub">${data.branches_missing_coordinates} סניפים ללא coordinates לא נכללו.</span>`:""}</div>`;
   if(data.stale_result_count){
     summary+=`<div class="freshness-note">🕒 <b>בקרת טריות:</b> ${data.fresh_result_count||0} הצעות כשירות לדירוג ו־${data.stale_result_count} ישנות מדי. מחיר מעל ${data.stale_hours||36} שעות עדיין מוצג בשקיפות, אבל לא מקבל 🏆 ולא משמש אוטומטית לחישוב "הכי זול".</div>`;
   }else{
@@ -1569,13 +1583,17 @@ function renderComparison(){
         <div>
           <b>${i===bestEligibleIndex?"🏆 ":""}${r.preferred?"⭐ ":""}${esc(r.brand)}${r.product_name?" · "+esc(r.product_name):""}</b>
           <div><span class="chain-tag">${esc(r.chain)}</span></div>
-          <div class="meta">${esc(r.branch)}${r.address?" · "+esc(r.address):""}${Number.isFinite(r.distance_km)?` · 📍 ${r.distance_km.toFixed(1)} ק״מ`:""}</div>
+          <div class="meta">${esc(r.branch)}${r.address?" · "+esc(r.address):""}${r.is_online?" · משלוח/איסוף לפי זמינות":Number.isFinite(r.distance_km)?` · 📍 ${r.distance_km.toFixed(1)} ק״מ`:""}</div>
+          ${r.is_online?`<span class="online-badge">🌐 אונליין</span>`:""}
+          ${r.is_promotion?`<span class="promo">🏷️ מבצע פעיל</span>`:""}
         </div>
         <div style="text-align:left">
           <div class="price">${formatMoney(r.effective_price)}</div>
+          ${r.is_promotion&&Number.isFinite(r.regular_price)?`<div class="old-price">${formatMoney(r.regular_price)}</div>`:""}
           <div class="unit-price">${Number(r.score).toFixed(3)} ${esc(r.normalized_unit_label||scoreLabel(mode))}</div>
         </div>
       </div>
+      ${r.is_promotion?`<div class="promo-terms"><b>${esc(r.promo_description||"מחיר מבצע")}</b>${r.promo_min_quantity>1?` · מינימום ${esc(r.promo_min_quantity)} אריזות`:""}${Number.isFinite(r.promo_total_price)&&r.promo_min_quantity>1?` · סה״כ ${formatMoney(r.promo_total_price)}`:""}${r.requires_club?" · לחברי מועדון":""}${r.promo_end_at?` · עד ${new Date(r.promo_end_at).toLocaleDateString("he-IL")}`:""}</div>`:""}
       <div class="meta" style="margin-top:7px">${r.package_quantity?`אריזה: ${esc(r.package_quantity)} ${esc(r.package_unit||"")}`:"כמות אריזה לא זמינה"} · ברקוד ${esc(r.barcode)}</div>
       ${r.freshness_label?`<div class="freshness-badge ${esc(r.freshness_css||"freshness-unknown")}">${esc(r.freshness_label)}</div>`:""}${priceFreshnessTimestamp(r)?`<div class="data-fresh">חותמת מקור: ${new Date(priceFreshnessTimestamp(r)).toLocaleString("he-IL",{dateStyle:"short",timeStyle:"short"})}</div>`:""}
       <button class="btn ${i===bestEligibleIndex?"primary":"soft"}" style="width:100%;margin-top:8px" data-buyidx="${i}">קניתי / רוצה לקנות כאן</button>

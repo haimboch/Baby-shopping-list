@@ -1,13 +1,12 @@
 {
-  "id": "./",
   "name": "Baby Smart List",
   "short_name": "Baby Smart",
-  "description": "מלאי תינוק משותף, השוואת מחירים והתראות למשפחה",
+  "description": "מלאי משפחתי והשוואת מחירי מוצרי תינוקות",
   "lang": "he",
   "dir": "rtl",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f5f6fa",
+  "background_color": "#f6f7fb",
   "theme_color": "#6557e8"
 }
