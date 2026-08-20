@@ -1,4 +1,5 @@
 from baby_worker.classifier import classify_need, parse_dimension, parse_package_quantity
+from baby_worker.cheapersal_prices import CheaperSalPriceFallback
 from baby_worker.ksp import parse_ksp_product_html
 from baby_worker.superpharm_online import (
     extract_superpharm_product_urls,
@@ -209,3 +210,67 @@ def test_strict_source_outcome_is_not_false_success():
     assert assess_ingestion_outcome("KSP", blocked_data, 0)[0] == "failed"
     assert assess_ingestion_outcome("SUPER_PHARM", {"files_seen": 1}, 0)[0] == "partial"
     assert assess_ingestion_outcome("KSP", blocked_data, 1) == ("success", None)
+
+
+def test_cheapersal_price_fallback_normalizes_matching_chain():
+    payload = {
+        "success": True,
+        "data": {
+            "product": {
+                "barcode": "7290000195537",
+                "name": "מגבונים לחים לתינוק ללא בישום מארז רביעייה",
+                "manufacturer": "האגיס",
+                "unitQty": "4x56",
+            },
+            "prices": [
+                {
+                    "price": 28.90,
+                    "chain": {"id": "sp", "name": "סופר פארם"},
+                    "branch": {
+                        "id": "online",
+                        "name": "סופר פארם אונליין",
+                        "isOnline": True,
+                    },
+                    "promo": {
+                        "promoPrice": 17.90,
+                        "description": "מבצע",
+                        "validUntil": "2026-08-31T00:00:00Z",
+                        "requiresClub": True,
+                    },
+                },
+                {
+                    "price": 30.90,
+                    "chain": {"id": "other", "name": "רשת אחרת"},
+                    "branch": {"id": "1", "name": "אחר"},
+                },
+            ],
+        },
+    }
+
+    class Response:
+        status_code = 200
+        ok = True
+        text = "{}"
+
+        def json(self):
+            return payload
+
+    def fake_get(*args, **kwargs):
+        return Response()
+
+    import baby_worker.cheapersal_prices as cheapersal_prices
+
+    original_requests = cheapersal_prices.requests
+    cheapersal_prices.requests = type("RequestsMock", (), {"get": staticmethod(fake_get)})
+    try:
+        fallback = CheaperSalPriceFallback("csal_test", limit=1)
+        source_pass, stats = fallback.collect(
+            "SUPER_PHARM",
+            [{"barcode": "7290000195537", "need_key": "wipes"}],
+        )
+        assert stats["baby_prices"] == 1
+        assert source_pass["price_rows"][0]["source_name"] == "SUPER_PHARM"
+        assert source_pass["price_rows"][0]["promo_price"] == 17.9
+        assert source_pass["store_rows"][0]["branch_code"] == "online"
+    finally:
+        cheapersal_prices.requests = original_requests
