@@ -25,6 +25,18 @@ KSP_CATEGORY_PATHS = {
     "formula": "/mob/cat/56308",
 }
 
+# Direct official product pages are tried before category/search discovery.
+# This gives the worker a useful starting point when KSP blocks list/search
+# endpoints from a GitHub-hosted IP. Successful pages are persisted and become
+# self-refreshing through ksp_known_items on later runs.
+KSP_SEED_ITEMS = (
+    {"item_id": "440079", "need_key": "diapers"},
+    {"item_id": "440064", "need_key": "diapers"},
+    {"item_id": "150487", "need_key": "diapers"},
+    {"item_id": "70286", "need_key": "wipes"},
+    {"item_id": "456164", "need_key": "wipes"},
+)
+
 _ITEM_URL_RE = re.compile(
     r"(?:https?://(?:www\.)?ksp\.co\.il)?/"
     r"(?:(?:mob|web)/item/(?P<plain>\d+)|item/(?:\d+-)?(?P<legacy>\d+))",
@@ -185,6 +197,9 @@ def parse_ksp_product_html(
         h1 = re.search(r"<h1\b[^>]*>(.*?)</h1>", page_html or "", re.I | re.S)
         name = _clean_text(h1.group(1)) if h1 else ""
     if not name:
+        printed_name = re.search(r"שם\s+המוצר\s*[:\-]?\s*(.+?)(?:מספר\s+מוצר|תאריך\s+תוקף)", _clean_text(page_html), re.I)
+        name = _clean_text(printed_name.group(1)) if printed_name else ""
+    if not name:
         return None
 
     raw_barcode = _first_json_value(
@@ -228,6 +243,17 @@ def parse_ksp_product_html(
     )
     if meta_price is not None:
         current_candidates.insert(0, meta_price)
+
+    # KSP's print/mobile variants do not always expose JSON-LD. Keep the
+    # fallback narrowly anchored to official price labels.
+    plain_price = re.search(
+        r"(?:מחיר\s+אשראי|מחיר\s+המוצר|מחיר\s+באתר)\s*[:\-]?\s*(\d+(?:[.,]\d{1,2})?)\s*₪?",
+        plain,
+        re.I,
+    )
+    visible_price = _money(plain_price.group(1)) if plain_price else None
+    if visible_price is not None:
+        current_candidates.append(visible_price)
 
     regular_candidates = _all_json_money(
         scope,
@@ -321,15 +347,25 @@ def _get(
     timeout: int = 35,
 ) -> requests.Response:
     last_error: Exception | None = None
-    for attempt in range(1, 4):
+    for attempt in range(1, 3):
         try:
             response = session.get(url, params=params, timeout=timeout, allow_redirects=True)
-            if response.ok:
+            challenge = response.text[:4000].lower() if "text" in response.headers.get("Content-Type", "").lower() else ""
+            blocked = (
+                response.status_code in (403, 429)
+                or "kramericaindustries" in challenge
+                or "window.rbzns" in challenge
+                or "access denied" in challenge
+            )
+            if response.ok and not blocked:
                 return response
             last_error = RuntimeError(f"HTTP {response.status_code} from {response.url}")
         except Exception as exc:  # pragma: no cover - network behavior
             last_error = exc
-        if attempt < 3:
+        # Retrying the same WAF denial only makes a run slower and noisier.
+        if isinstance(last_error, RuntimeError) and "HTTP 403" in str(last_error):
+            break
+        if attempt < 2:
             import time
 
             time.sleep(1.1 * attempt)
@@ -351,7 +387,11 @@ def collect_ksp_official(
     session = session or requests.Session()
     session.headers.update(
         {
-            "User-Agent": "Baby-Smart-List/0.34 (+official-product-price-monitor)",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 "
+                "Baby-Smart-List/0.35"
+            ),
             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
             "Accept-Language": "he-IL,he;q=0.9,en;q=0.6",
             "Referer": f"{KSP_BASE_URL}/mob/",
@@ -364,6 +404,7 @@ def collect_ksp_official(
     errors: list[str] = []
     search_requests = 0
     category_requests = 0
+    item_page_attempts = 0
 
     def add_url(raw_url: str, need_key: str | None) -> None:
         parsed = urlparse(urljoin(KSP_BASE_URL, raw_url))
@@ -383,40 +424,24 @@ def collect_ksp_official(
         elif item.get("item_id"):
             add_url(f"/mob/item/{item['item_id']}", item.get("need_key"))
 
-    # Exact barcode search safely links KSP offers to the catalog we already trust.
-    known_barcodes = {str(item.get("barcode") or "") for item in known}
-    for target in targets:
-        if len(url_need) >= max_items or search_requests >= discovery_limit:
-            break
-        barcode = str(target.get("barcode") or "").strip()
-        need_key = str(target.get("need_key") or "").strip() or None
-        if not barcode or barcode in known_barcodes:
-            continue
-        try:
-            response = _get(
-                session,
-                f"{KSP_BASE_URL}/mob/cat/",
-                params={"search": barcode},
-            )
-            search_requests += 1
-            for item_url in extract_ksp_item_urls(response.text):
-                add_url(item_url, need_key)
-        except Exception as exc:  # pragma: no cover - network behavior
-            errors.append(f"search {barcode}: {type(exc).__name__}: {exc}")
+    for item in KSP_SEED_ITEMS:
+        add_url(f"/mob/item/{item['item_id']}", item.get("need_key"))
 
-    # Category discovery catches new official products not yet in our catalog.
+    # Category discovery is a small fixed number of requests and can expose
+    # new products. It runs before barcode searches, which are more likely to
+    # be throttled by KSP.
     if len(url_need) < max_items:
         for need_key, path in KSP_CATEGORY_PATHS.items():
             for page in range(1, max(1, category_pages) + 1):
                 if len(url_need) >= max_items:
                     break
+                category_requests += 1
                 try:
                     response = _get(
                         session,
                         urljoin(KSP_BASE_URL, path),
                         params={"page": page},
                     )
-                    category_requests += 1
                     found = extract_ksp_item_urls(response.text)
                     for item_url in found:
                         add_url(item_url, need_key)
@@ -426,27 +451,61 @@ def collect_ksp_official(
                     errors.append(f"category {need_key} page {page}: {type(exc).__name__}: {exc}")
                     break
 
+    # Exact barcode search safely links KSP offers to the catalog we already trust.
+    known_barcodes = {str(item.get("barcode") or "") for item in known}
+    for target in targets:
+        if len(url_need) >= max_items or search_requests >= discovery_limit:
+            break
+        barcode = str(target.get("barcode") or "").strip()
+        need_key = str(target.get("need_key") or "").strip() or None
+        if not barcode or barcode in known_barcodes:
+            continue
+        search_requests += 1
+        try:
+            response = _get(
+                session,
+                f"{KSP_BASE_URL}/mob/cat/",
+                params={"search": barcode},
+            )
+            for item_url in extract_ksp_item_urls(response.text):
+                add_url(item_url, need_key)
+        except Exception as exc:  # pragma: no cover - network behavior
+            errors.append(f"search {barcode}: {type(exc).__name__}: {exc}")
+
     price_rows: list[dict[str, Any]] = []
     promo_rows: list[dict[str, Any]] = []
     fetched_urls = 0
     parsed_urls = 0
     for product_url, expected_need in list(url_need.items())[:max_items]:
-        try:
-            response = _get(session, product_url)
-            fetched_urls += 1
-            parsed = parse_ksp_product_html(
-                response.text,
-                product_url,
-                expected_need=expected_need,
-            )
-            if not parsed:
-                continue
-            parsed_urls += 1
-            price_rows.append(parsed["price_row"])
-            if parsed.get("promo_row"):
-                promo_rows.append(parsed["promo_row"])
-        except Exception as exc:  # pragma: no cover - network behavior
-            errors.append(f"{product_url}: {type(exc).__name__}: {exc}")
+        item_match = _ITEM_URL_RE.search(product_url)
+        item_id = (item_match.group("plain") or item_match.group("legacy")) if item_match else None
+        variants = [product_url]
+        if item_id:
+            variants.extend([
+                f"{KSP_BASE_URL}/web/item/{item_id}",
+                f"{KSP_BASE_URL}/?print={item_id}",
+            ])
+        parsed = None
+        for variant in variants:
+            item_page_attempts += 1
+            try:
+                response = _get(session, variant)
+                fetched_urls += 1
+                parsed = parse_ksp_product_html(
+                    response.text,
+                    product_url,
+                    expected_need=expected_need,
+                )
+                if parsed:
+                    break
+            except Exception as exc:  # pragma: no cover - network behavior
+                errors.append(f"{variant}: {type(exc).__name__}: {exc}")
+        if not parsed:
+            continue
+        parsed_urls += 1
+        price_rows.append(parsed["price_row"])
+        if parsed.get("promo_row"):
+            promo_rows.append(parsed["promo_row"])
 
     # One current offer per barcode. Prefer the last successfully parsed page.
     price_by_barcode = {str(row["barcode"]): row for row in price_rows}
@@ -461,7 +520,7 @@ def collect_ksp_official(
         "files_seen": fetched_urls,
         "price_rows": price_rows,
         "promo_rows": promo_rows,
-        "store_rows": [
+        "store_rows": ([
             {
                 "source_name": "KSP",
                 "branch_code": KSP_ONLINE_BRANCH,
@@ -470,7 +529,7 @@ def collect_ksp_official(
                 "city": None,
                 "address": "משלוח ארצי או איסוף לפי זמינות",
             }
-        ],
+        ] if price_rows else []),
         "errors": errors[:30],
         "kind_counts": {"official_product_page": fetched_urls},
         "sample_files": list(url_need.keys())[:12],
@@ -484,10 +543,12 @@ def collect_ksp_official(
         "search_requests": search_requests,
         "category_requests": category_requests,
         "item_urls_discovered": len(url_need),
+        "item_page_attempts": item_page_attempts,
         "item_pages_fetched": fetched_urls,
         "item_pages_parsed": parsed_urls,
         "baby_prices": len(price_rows),
         "active_promotions": len(promo_rows),
+        "blocked": bool(errors) and fetched_urls == 0,
         "errors": errors[:12],
     }
 

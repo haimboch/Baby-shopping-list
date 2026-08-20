@@ -20,6 +20,7 @@ from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_store
 from .supabase_rest import SupabaseREST
 from .enrichment import MetadataEnricher
 from .ksp import collect_ksp_official
+from .superpharm_online import collect_superpharm_online
 
 SCRAPER_TO_DB = {
     "SUPER_PHARM": "super_pharm",
@@ -577,14 +578,22 @@ def _sp_get(
                 timeout=timeout,
                 allow_redirects=True,
             )
-            if 200 <= response.status_code < 300:
+            preview = response.text[:4000].lower() if "text" in response.headers.get("Content-Type", "").lower() else ""
+            challenge = (
+                "kramericaindustries" in preview
+                or "window.rbzns" in preview
+                or "access denied" in preview
+            )
+            if response.status_code == 200 and not challenge:
                 return response
             last_exc = RuntimeError(
-                f"HTTP {response.status_code} from {response.url}"
+                f"blocked HTTP {response.status_code} from {response.url}"
             )
         except Exception as exc:
             last_exc = exc
 
+        if isinstance(last_exc, RuntimeError) and "blocked HTTP" in str(last_exc):
+            break
         if attempt < attempts:
             import time
             time.sleep(1.25 * attempt)
@@ -668,6 +677,7 @@ def _scan_sp_index(
     errors: list[str] = []
     diagnostics: list[dict[str, Any]] = []
     seen_files: set[str] = set()
+    blocked = False
 
     for filtered in (True, False):
         if len(_sp_newest_per_branch(found)) >= target_count:
@@ -745,14 +755,18 @@ def _scan_sp_index(
                     break
 
             except Exception as exc:
-                errors.append(
+                error = (
                     f"{'filtered' if filtered else 'broad'} "
                     f"page {page}: {type(exc).__name__}: {exc}"
                 )
+                errors.append(error)
+                if "blocked HTTP" in str(exc):
+                    blocked = True
+                    break
                 if len(errors) >= 8:
                     break
 
-        if len(errors) >= 8:
+        if blocked or len(errors) >= 8:
             break
 
     newest = _sp_newest_per_branch(found)
@@ -761,6 +775,7 @@ def _scan_sp_index(
         "pages_scanned": pages_scanned,
         "links_found": len(newest),
         "files_discovered_total": len(found),
+        "blocked": blocked,
         "errors": errors[:8],
         "diagnostics": diagnostics,
     }
@@ -2573,11 +2588,19 @@ async def collect_source(
             promo_incremental_limit=promo_incremental_limit,
             max_pages=max_pages,
         )
-        data = _merge_source_passes(
-            scraper_name,
-            file_limit,
-            passes,
-        )
+        data = _merge_source_passes(scraper_name, file_limit, passes)
+
+        online_stats: dict[str, Any] = {
+            "fallback_used": False,
+            "reason": "transparency feed contained baby price rows",
+        }
+        if not data["price_rows"]:
+            online_pass, online_stats = collect_superpharm_online(
+                max_items=int(os.environ.get("SUPER_PHARM_ONLINE_MAX_ITEMS", "90")),
+                category_pages=int(os.environ.get("SUPER_PHARM_ONLINE_CATEGORY_PAGES", "2")),
+            )
+            passes.append(online_pass)
+            data = _merge_source_passes(scraper_name, file_limit, passes)
         data["scrape_file_limit"] = {
             "stores": 1,
             "full": full_limit,
@@ -2585,8 +2608,11 @@ async def collect_source(
             "promo_full": promo_full_limit,
             "promo_incremental": promo_incremental_limit,
             "index_max_pages": max_pages,
+            "online_max_items": int(os.environ.get("SUPER_PHARM_ONLINE_MAX_ITEMS", "90")),
+            "online_category_pages": int(os.environ.get("SUPER_PHARM_ONLINE_CATEGORY_PAGES", "2")),
         }
         data["super_pharm_bootstrap"] = stats
+        data["super_pharm_online_fallback"] = online_stats
         return data
 
     if scraper_name == "YOHANANOF":
@@ -3030,6 +3056,48 @@ async def collect_source(
     data["scrape_file_limit"] = file_limit
     return data
 
+
+_STRICT_SOURCE_SCRAPERS = {"KSP", "SUPER_PHARM"}
+
+
+def assess_ingestion_outcome(
+    scraper_name: str,
+    data: dict[str, Any],
+    observed_price_rows: int,
+) -> tuple[str, str | None]:
+    """Return an honest run status without failing unrelated retailer jobs."""
+    if observed_price_rows > 0:
+        return "success", None
+    if scraper_name not in _STRICT_SOURCE_SCRAPERS:
+        return "success", None
+
+    diagnostic_text = json.dumps(
+        {
+            "errors": data.get("errors", []),
+            "ksp": data.get("ksp_official"),
+            "super_pharm": data.get("super_pharm_bootstrap"),
+            "super_pharm_online": data.get("super_pharm_online_fallback"),
+        },
+        ensure_ascii=False,
+    ).lower()
+    blocked = any(marker in diagnostic_text for marker in (
+        "http 403",
+        "http 429",
+        "http 247",
+        "blocked http",
+        "kramericaindustries",
+        "window.rbzns",
+        "access denied",
+        '"blocked": true',
+    ))
+    files_seen = int(data.get("files_seen") or 0)
+    if blocked and files_seen == 0:
+        return "failed", f"{scraper_name}: retailer blocked every source; no baby price rows were observed"
+    if files_seen == 0:
+        return "failed", f"{scraper_name}: no source files or product pages were available"
+    return "partial", f"{scraper_name}: source pages were read but no valid baby price row was parsed"
+
+
 async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None, enricher: MetadataEnricher | None = None, target_plan: dict[str, Any] | None = None):
     source_db_name = SCRAPER_TO_DB[scraper_name]
     run_id = None
@@ -3047,6 +3115,13 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         prices = [to_db_price(x) for x in merged]
 
         prices, duplicate_price_rows = collapse_latest_prices(prices)
+        observed_price_rows = len(prices)
+        observed_chain_ids = sorted({p["chain_id"] for p in prices})
+        run_status, outcome_reason = assess_ingestion_outcome(
+            scraper_name,
+            data,
+            observed_price_rows,
+        )
 
         stale_rows_skipped = 0
         if db and not dry_run and prices:
@@ -3090,25 +3165,34 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                 "files_seen": data["files_seen"],
                 "branches": len(branches),
                 "baby_prices": len(prices),
+                "run_status": run_status,
+                "outcome_reason": outcome_reason,
                 "examples": prices[:5],
                 "parse_errors": data["errors"][:5],
             }, ensure_ascii=False, indent=2))
         elif db:
             db.upsert("retail_branches", branches, "chain_id,branch_code")
             db.upsert("baby_retail_prices", prices, "chain_id,branch_code,barcode")
-            # Since SHUFERSAL supplies both, mark both successful if rows were actually seen.
-            touched = sorted({p["chain_id"] for p in prices} | {b["chain_id"] for b in branches})
-            for chain_id in touched:
+            # A discovered branch alone is not a successful price ingestion.
+            # Same/older valid price rows still count as source success even if
+            # the stale-row guard did not write them again.
+            for chain_id in observed_chain_ids:
                 db.patch("retail_chains", {"id": chain_id}, {"last_success_at": utcnow()})
             if run_id:
                 db.patch("feed_ingestion_runs", {"id": run_id}, {
-                    "status": "success",
+                    "status": run_status,
                     "finished_at": utcnow(),
                     "files_seen": data["files_seen"],
                     "products_seen": len(data["price_rows"]),
                     "baby_products_saved": len(prices),
+                    "error_message": outcome_reason,
                     "details": {
                         "scraper": scraper_name,
+                        "outcome": {
+                            "status": run_status,
+                            "reason": outcome_reason,
+                            "observed_valid_price_rows": observed_price_rows,
+                        },
                         "branches_saved": len(branches),
                         "promo_rows_seen": len(data["promo_rows"]),
                         "duplicate_price_rows_collapsed": duplicate_price_rows,
@@ -3121,6 +3205,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "shufersal_bootstrap": data.get("shufersal_bootstrap"),
                         "be_bootstrap": data.get("be_bootstrap"),
                         "super_pharm_bootstrap": data.get("super_pharm_bootstrap"),
+                        "super_pharm_online_fallback": data.get("super_pharm_online_fallback"),
                         "ksp_official": data.get("ksp_official"),
                         "rami_levy_location": data.get("rami_levy_location"),
                         "osher_ad_bootstrap": data.get("osher_ad_bootstrap"),
@@ -3133,12 +3218,17 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "parse_errors": data["errors"][:25],
                     },
                 })
-        print(
-            f"✅ {scraper_name}: {len(prices)} unique baby price rows "
+        message = (
+            f"{scraper_name}: {len(prices)} unique baby price rows "
             f"from {data['files_seen']} files "
             f"({duplicate_price_rows} duplicate rows collapsed, "
             f"{stale_rows_skipped} stale rows skipped)"
         )
+        if run_status == "success":
+            print(f"✅ {message}")
+        else:
+            print(f"::warning title={scraper_name} ingestion {run_status}::{outcome_reason}")
+            print(f"⚠️ {message} | {outcome_reason}")
     except Exception as exc:
         if db and run_id and not dry_run:
             try:
