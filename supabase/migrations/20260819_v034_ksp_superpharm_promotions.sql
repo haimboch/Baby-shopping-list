@@ -1,0 +1,534 @@
+-- Baby Smart List v0.34
+-- KSP online offers, Super-Pharm promotions, promotion terms and price history.
+
+alter table public.retail_chains
+  add column if not exists fulfillment_mode text not null default 'local';
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.retail_chains'::regclass
+      and conname = 'retail_chains_fulfillment_mode_check'
+  ) then
+    alter table public.retail_chains
+      add constraint retail_chains_fulfillment_mode_check
+      check (fulfillment_mode in ('local', 'online', 'hybrid'));
+  end if;
+end
+$$;
+
+insert into public.retail_chains (
+  id, display_name, source_type, source_url, enabled, fulfillment_mode
+)
+values (
+  'ksp', 'KSP', 'official_product_pages', 'https://ksp.co.il/', true, 'online'
+)
+on conflict (id) do update set
+  display_name = excluded.display_name,
+  source_type = excluded.source_type,
+  source_url = excluded.source_url,
+  enabled = true,
+  fulfillment_mode = 'online';
+
+update public.retail_chains
+set enabled = true,
+    source_url = 'https://prices.super-pharm.co.il/',
+    fulfillment_mode = 'local'
+where id = 'super_pharm';
+
+insert into public.retail_branches (
+  chain_id, branch_code, branch_name, city, address, latitude, longitude, active, last_seen_at
+)
+values (
+  'ksp', 'online', 'KSP אונליין', null,
+  'משלוח ארצי או איסוף לפי זמינות', null, null, true, now()
+)
+on conflict (chain_id, branch_code) do update set
+  branch_name = excluded.branch_name,
+  address = excluded.address,
+  latitude = null,
+  longitude = null,
+  active = true,
+  last_seen_at = excluded.last_seen_at;
+
+alter table public.baby_retail_prices
+  add column if not exists promo_min_quantity numeric,
+  add column if not exists promo_total_price numeric;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.baby_retail_prices'::regclass
+      and conname = 'baby_retail_prices_promo_min_quantity_check'
+  ) then
+    alter table public.baby_retail_prices
+      add constraint baby_retail_prices_promo_min_quantity_check
+      check (promo_min_quantity is null or promo_min_quantity > 0);
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.baby_retail_prices'::regclass
+      and conname = 'baby_retail_prices_promo_total_price_check'
+  ) then
+    alter table public.baby_retail_prices
+      add constraint baby_retail_prices_promo_total_price_check
+      check (promo_total_price is null or promo_total_price > 0);
+  end if;
+end
+$$;
+
+create or replace view public.baby_normalized_prices
+with (security_invoker = true)
+as
+select
+  p.chain_id,
+  p.branch_code,
+  p.barcode,
+  p.need_key,
+  p.dimension_type,
+  p.dimension_value,
+  p.brand,
+  p.product_name,
+  p.package_quantity,
+  p.package_unit,
+  p.regular_price,
+  p.promo_price,
+  case
+    when p.promo_price is not null
+      and p.promo_price > 0
+      and p.promo_price < p.regular_price
+      and (p.promo_start_at is null or p.promo_start_at <= now())
+      and (p.promo_end_at is null or p.promo_end_at >= now())
+      then p.promo_price
+    else p.regular_price
+  end as effective_price,
+  p.promo_description,
+  p.promo_start_at,
+  p.promo_end_at,
+  p.requires_club,
+  p.source_updated_at,
+  p.last_seen_at,
+  p.raw_source,
+  n.canonical_package_quantity,
+  n.canonical_package_unit,
+  n.quantity_source,
+  n.raw_quantity_conflict,
+  n.unresolved_quantity_conflict,
+  case
+    when n.canonical_package_quantity is null or n.canonical_package_quantity <= 0 then null::numeric
+    when p.need_key = 'formula' and n.canonical_package_unit = 'גרם' then
+      round((case
+        when p.promo_price is not null and p.promo_price > 0 and p.promo_price < p.regular_price
+          and (p.promo_start_at is null or p.promo_start_at <= now())
+          and (p.promo_end_at is null or p.promo_end_at >= now())
+          then p.promo_price else p.regular_price end) * 100.0 / n.canonical_package_quantity, 4)
+    when p.need_key in ('diapers', 'wipes') and n.canonical_package_unit = 'יחידות' then
+      round((case
+        when p.promo_price is not null and p.promo_price > 0 and p.promo_price < p.regular_price
+          and (p.promo_start_at is null or p.promo_start_at <= now())
+          and (p.promo_end_at is null or p.promo_end_at >= now())
+          then p.promo_price else p.regular_price end) / n.canonical_package_quantity, 4)
+    else null::numeric
+  end as normalized_unit_price,
+  case
+    when p.need_key = 'formula' and n.canonical_package_unit = 'גרם' then '₪ ל-100 גרם'
+    when p.need_key in ('diapers', 'wipes') and n.canonical_package_unit = 'יחידות' then '₪ ליחידה'
+    else null::text
+  end as normalized_unit_label,
+  p.promo_min_quantity,
+  p.promo_total_price
+from public.baby_retail_prices p
+left join public.baby_product_quantity_normalization n using (barcode);
+
+grant select on public.baby_normalized_prices to authenticated, service_role;
+
+create table if not exists public.baby_retail_price_history (
+  id bigint generated by default as identity primary key,
+  chain_id text not null,
+  branch_code text not null,
+  barcode text not null,
+  need_key text not null,
+  event_kind text not null check (
+    event_kind in ('baseline', 'price_changed', 'promo_started', 'promo_changed', 'promo_ended')
+  ),
+  regular_price numeric not null check (regular_price > 0),
+  promo_price numeric,
+  effective_price numeric not null check (effective_price > 0),
+  previous_regular_price numeric,
+  previous_promo_price numeric,
+  previous_effective_price numeric,
+  promo_description text,
+  promo_start_at timestamptz,
+  promo_end_at timestamptz,
+  promo_min_quantity numeric,
+  promo_total_price numeric,
+  requires_club boolean not null default false,
+  source_updated_at timestamptz,
+  observed_at timestamptz not null default now()
+);
+
+create index if not exists baby_retail_price_history_barcode_observed_idx
+  on public.baby_retail_price_history (barcode, observed_at desc);
+create index if not exists baby_retail_price_history_offer_observed_idx
+  on public.baby_retail_price_history (chain_id, branch_code, barcode, observed_at desc);
+
+alter table public.baby_retail_price_history enable row level security;
+revoke all on table public.baby_retail_price_history from public, anon, authenticated;
+grant select on table public.baby_retail_price_history to authenticated;
+grant all on table public.baby_retail_price_history to service_role;
+grant usage, select on sequence public.baby_retail_price_history_id_seq to service_role;
+
+drop policy if exists baby_retail_price_history_read_auth on public.baby_retail_price_history;
+create policy baby_retail_price_history_read_auth
+  on public.baby_retail_price_history
+  for select to authenticated
+  using (true);
+
+create or replace function private.capture_baby_retail_price_history()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_event text;
+  v_new_effective numeric;
+  v_old_effective numeric;
+  v_new_promo boolean;
+  v_old_promo boolean;
+begin
+  v_new_promo := new.promo_price is not null and new.promo_price > 0 and new.promo_price < new.regular_price;
+  v_new_effective := case when v_new_promo then new.promo_price else new.regular_price end;
+
+  if tg_op = 'INSERT' then
+    v_event := 'baseline';
+    v_old_effective := null;
+  else
+    v_old_promo := old.promo_price is not null and old.promo_price > 0 and old.promo_price < old.regular_price;
+    v_old_effective := case when v_old_promo then old.promo_price else old.regular_price end;
+
+    if row(
+      new.regular_price, new.promo_price, new.promo_description,
+      new.promo_start_at, new.promo_end_at, new.promo_min_quantity,
+      new.promo_total_price, new.requires_club
+    ) is not distinct from row(
+      old.regular_price, old.promo_price, old.promo_description,
+      old.promo_start_at, old.promo_end_at, old.promo_min_quantity,
+      old.promo_total_price, old.requires_club
+    ) then
+      return new;
+    elsif not v_old_promo and v_new_promo then
+      v_event := 'promo_started';
+    elsif v_old_promo and not v_new_promo then
+      v_event := 'promo_ended';
+    elsif v_old_promo and v_new_promo and row(
+      new.promo_price, new.promo_description, new.promo_start_at,
+      new.promo_end_at, new.promo_min_quantity, new.promo_total_price,
+      new.requires_club
+    ) is distinct from row(
+      old.promo_price, old.promo_description, old.promo_start_at,
+      old.promo_end_at, old.promo_min_quantity, old.promo_total_price,
+      old.requires_club
+    ) then
+      v_event := 'promo_changed';
+    else
+      v_event := 'price_changed';
+    end if;
+  end if;
+
+  insert into public.baby_retail_price_history (
+    chain_id, branch_code, barcode, need_key, event_kind,
+    regular_price, promo_price, effective_price,
+    previous_regular_price, previous_promo_price, previous_effective_price,
+    promo_description, promo_start_at, promo_end_at,
+    promo_min_quantity, promo_total_price, requires_club,
+    source_updated_at, observed_at
+  ) values (
+    new.chain_id, new.branch_code, new.barcode, new.need_key, v_event,
+    new.regular_price, new.promo_price, v_new_effective,
+    case when tg_op = 'UPDATE' then old.regular_price end,
+    case when tg_op = 'UPDATE' then old.promo_price end,
+    v_old_effective,
+    new.promo_description, new.promo_start_at, new.promo_end_at,
+    new.promo_min_quantity, new.promo_total_price, new.requires_club,
+    new.source_updated_at, now()
+  );
+  return new;
+end
+$$;
+
+drop trigger if exists baby_retail_prices_history_trigger on public.baby_retail_prices;
+create trigger baby_retail_prices_history_trigger
+after insert or update on public.baby_retail_prices
+for each row execute function private.capture_baby_retail_price_history();
+
+insert into public.baby_retail_price_history (
+  chain_id, branch_code, barcode, need_key, event_kind,
+  regular_price, promo_price, effective_price,
+  promo_description, promo_start_at, promo_end_at,
+  promo_min_quantity, promo_total_price, requires_club,
+  source_updated_at, observed_at
+)
+select
+  p.chain_id, p.branch_code, p.barcode, p.need_key, 'baseline',
+  p.regular_price, p.promo_price,
+  case
+    when p.promo_price is not null and p.promo_price > 0 and p.promo_price < p.regular_price
+      and (p.promo_start_at is null or p.promo_start_at <= now())
+      and (p.promo_end_at is null or p.promo_end_at >= now())
+      then p.promo_price else p.regular_price
+  end,
+  p.promo_description, p.promo_start_at, p.promo_end_at,
+  p.promo_min_quantity, p.promo_total_price, p.requires_club,
+  p.source_updated_at, now()
+from public.baby_retail_prices p
+where not exists (
+  select 1 from public.baby_retail_price_history h
+  where h.chain_id = p.chain_id
+    and h.branch_code = p.branch_code
+    and h.barcode = p.barcode
+);
+
+create or replace function public.generate_price_notification_events_v035()
+returns jsonb
+language plpgsql
+security definer
+set search_path = 'public', 'private', 'pg_temp'
+as $$
+declare
+  v_product record;
+  v_deal record;
+  v_created integer := 0;
+  v_scanned integer := 0;
+  v_discount numeric;
+  v_reason text;
+  v_title text;
+  v_body text;
+begin
+  for v_product in
+    select
+      p.id product_id,
+      p.household_id,
+      p.name,
+      coalesce(nullif(p.preferred_barcode, ''), nullif(p.barcode, '')) tracked_barcode,
+      h.latitude home_latitude,
+      h.longitude home_longitude,
+      coalesce(h.search_radius_km, 10) radius_km
+    from public.products p
+    join public.households h on h.id = p.household_id
+    where coalesce(nullif(p.preferred_barcode, ''), nullif(p.barcode, '')) is not null
+      and (
+        p.quantity is not null
+        or exists (
+          select 1 from public.inventory_snapshots s
+          where s.product_id = p.id and s.change_kind in ('consumption', 'purchase', 'restock')
+        )
+        or exists (select 1 from public.purchase_events pe where pe.product_id = p.id)
+      )
+      and not exists (
+        select 1 from private.notification_events e
+        where e.product_id = p.id
+          and e.event_type = 'price_deal'
+          and e.created_at > now() - interval '24 hours'
+      )
+  loop
+    v_scanned := v_scanned + 1;
+
+    select q.* into v_deal
+    from (
+      with offers as (
+        select
+          bp.chain_id,
+          coalesce(rc.display_name, bp.chain_id) chain_name,
+          rc.fulfillment_mode,
+          bp.branch_code,
+          rb.branch_name,
+          bp.regular_price,
+          bp.promo_price,
+          bp.effective_price,
+          bp.promo_description,
+          bp.promo_start_at,
+          bp.promo_end_at,
+          bp.promo_min_quantity,
+          bp.promo_total_price,
+          bp.requires_club,
+          bp.normalized_unit_price,
+          coalesce(bp.source_updated_at, bp.last_seen_at) freshness_at,
+          hist.previous_effective_price,
+          case
+            when rc.fulfillment_mode = 'online' then null::double precision
+            when v_product.home_latitude is null or v_product.home_longitude is null
+              or rb.latitude is null or rb.longitude is null then null::double precision
+            else 6371 * 2 * asin(least(1.0, sqrt(
+              power(sin(radians(rb.latitude - v_product.home_latitude) / 2), 2)
+              + cos(radians(v_product.home_latitude)) * cos(radians(rb.latitude))
+              * power(sin(radians(rb.longitude - v_product.home_longitude) / 2), 2)
+            )))
+          end distance_km
+        from public.baby_normalized_prices bp
+        join public.retail_branches rb
+          on rb.chain_id = bp.chain_id and rb.branch_code = bp.branch_code and rb.active = true
+        join public.retail_chains rc on rc.id = bp.chain_id and rc.enabled = true
+        left join lateral (
+          select h.previous_effective_price
+          from public.baby_retail_price_history h
+          where h.chain_id = bp.chain_id
+            and h.branch_code = bp.branch_code
+            and h.barcode = bp.barcode
+            and h.event_kind <> 'baseline'
+          order by h.observed_at desc
+          limit 1
+        ) hist on true
+        where bp.barcode = v_product.tracked_barcode
+          and coalesce(bp.source_updated_at, bp.last_seen_at) >= now() - interval '36 hours'
+          and bp.effective_price > 0
+          and (
+            rc.fulfillment_mode = 'online'
+            or (
+              v_product.home_latitude is not null and v_product.home_longitude is not null
+              and rb.latitude is not null and rb.longitude is not null
+            )
+          )
+      ),
+      eligible as (
+        select * from offers
+        where fulfillment_mode = 'online' or distance_km <= v_product.radius_km
+      ),
+      stats as (
+        select
+          count(*)::integer offer_count,
+          percentile_cont(0.5) within group (
+            order by coalesce(normalized_unit_price, effective_price)
+          ) median_price
+        from eligible
+      )
+      select
+        o.*,
+        s.offer_count,
+        s.median_price,
+        case
+          when o.promo_price is not null and o.regular_price > 0
+            and o.promo_price < o.regular_price
+            and (o.promo_start_at is null or o.promo_start_at <= now())
+            and (o.promo_end_at is null or o.promo_end_at >= now())
+            then (o.regular_price - o.promo_price) / o.regular_price
+          else 0
+        end promo_discount,
+        case
+          when o.previous_effective_price > 0 and o.effective_price < o.previous_effective_price
+            then (o.previous_effective_price - o.effective_price) / o.previous_effective_price
+          else 0
+        end price_drop,
+        case
+          when s.offer_count >= 3 and s.median_price > 0
+            then (s.median_price - coalesce(o.normalized_unit_price, o.effective_price)) / s.median_price
+          else 0
+        end market_discount
+      from eligible o cross join stats s
+      where
+        (
+          o.promo_price is not null and o.regular_price > 0
+          and o.promo_price < o.regular_price
+          and (o.promo_start_at is null or o.promo_start_at <= now())
+          and (o.promo_end_at is null or o.promo_end_at >= now())
+          and (o.regular_price - o.promo_price) / o.regular_price >= 0.08
+        )
+        or (
+          o.previous_effective_price > 0
+          and o.effective_price <= o.previous_effective_price * 0.92
+        )
+        or (
+          s.offer_count >= 3 and s.median_price > 0
+          and coalesce(o.normalized_unit_price, o.effective_price) <= s.median_price * 0.90
+        )
+      order by greatest(
+        case when o.promo_price is not null and o.regular_price > 0
+          then (o.regular_price - o.promo_price) / o.regular_price else 0 end,
+        case when o.previous_effective_price > 0
+          then (o.previous_effective_price - o.effective_price) / o.previous_effective_price else 0 end,
+        case when s.median_price > 0
+          then (s.median_price - coalesce(o.normalized_unit_price, o.effective_price)) / s.median_price else 0 end
+      ) desc,
+      o.effective_price,
+      o.distance_km nulls last
+      limit 1
+    ) q;
+
+    if found then
+      v_discount := greatest(
+        coalesce(v_deal.promo_discount, 0),
+        coalesce(v_deal.price_drop, 0),
+        coalesce(v_deal.market_discount, 0)
+      );
+      v_reason := case
+        when coalesce(v_deal.promo_discount, 0) >= 0.08 then 'מבצע'
+        when coalesce(v_deal.price_drop, 0) >= 0.08 then 'ירידת מחיר'
+        else 'מחיר טוב באזור'
+      end;
+      v_title := case
+        when v_reason = 'מבצע' then '🏷️ מבצע על '
+        when v_reason = 'ירידת מחיר' then '📉 המחיר ירד על '
+        else '💰 מחיר טוב על '
+      end || v_product.name;
+      v_body := coalesce(v_deal.chain_name, 'חנות')
+        || case when nullif(btrim(v_deal.branch_name), '') is not null then ' · ' || v_deal.branch_name else '' end
+        || ': ₪' || trim(to_char(v_deal.effective_price, 'FM999999990.00'))
+        || case when v_discount > 0 then ' · כ־' || round(v_discount * 100)::text || '% פחות' else '' end
+        || case when coalesce(v_deal.promo_min_quantity, 1) > 1
+          then ' · מינימום ' || trim(to_char(v_deal.promo_min_quantity, 'FM999999990.##')) || ' אריזות' else '' end
+        || case when v_deal.requires_club then ' · מחיר מועדון' else '' end
+        || case when v_deal.fulfillment_mode = 'online' then ' · אונליין' else '' end;
+
+      perform private.enqueue_notification_event(
+        v_product.household_id,
+        'price_deal',
+        v_product.product_id,
+        null,
+        v_title,
+        v_body,
+        jsonb_build_object(
+          'action', 'compare',
+          'product_id', v_product.product_id,
+          'product_name', v_product.name,
+          'barcode', v_product.tracked_barcode,
+          'chain_id', v_deal.chain_id,
+          'chain_name', v_deal.chain_name,
+          'branch_code', v_deal.branch_code,
+          'branch_name', v_deal.branch_name,
+          'fulfillment_mode', v_deal.fulfillment_mode,
+          'effective_price', v_deal.effective_price,
+          'previous_effective_price', v_deal.previous_effective_price,
+          'regular_price', v_deal.regular_price,
+          'promo_price', v_deal.promo_price,
+          'promo_description', v_deal.promo_description,
+          'promo_min_quantity', v_deal.promo_min_quantity,
+          'promo_total_price', v_deal.promo_total_price,
+          'promo_end_at', v_deal.promo_end_at,
+          'requires_club', v_deal.requires_club,
+          'distance_km', case when v_deal.distance_km is null then null else round(v_deal.distance_km::numeric, 1) end,
+          'reason', v_reason,
+          'discount_pct', round(v_discount * 100),
+          'freshness_at', v_deal.freshness_at,
+          'url', './#shopping'
+        )
+      );
+      v_created := v_created + 1;
+    end if;
+  end loop;
+
+  return jsonb_build_object(
+    'products_scanned', v_scanned,
+    'events_created', v_created,
+    'finished_at', now()
+  );
+end
+$$;
+
+revoke all on function public.generate_price_notification_events_v035() from public, anon, authenticated;
+grant execute on function public.generate_price_notification_events_v035() to service_role;
+
+comment on table public.baby_retail_price_history is
+  'Meaningful retail price and promotion changes used for deal tracking.';
+comment on column public.retail_chains.fulfillment_mode is
+  'local, online, or hybrid; online offers are not filtered by household radius.';
