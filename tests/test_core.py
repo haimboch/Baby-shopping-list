@@ -1,5 +1,7 @@
 from baby_worker.classifier import classify_need, parse_dimension, parse_package_quantity
-from baby_worker.xmlfeeds import parse_price_rows, parse_stores
+from baby_worker.ksp import parse_ksp_product_html
+from baby_worker.worker import _sp_candidates_from_html, merge_prices_and_promos
+from baby_worker.xmlfeeds import parse_price_rows, parse_promotions, parse_stores
 
 def test_classifier():
     assert classify_need("האגיס אקסטרה קר חיתולים מידה 3 40 יחידות") == "diapers"
@@ -50,3 +52,69 @@ def test_xml_price_and_store():
     stores = parse_stores(stores_xml, "SHUFERSAL", "Stores7290027600007-20260816.xml")
     assert stores[0]["branch_code"] == "123"
     assert stores[0]["city"] == "שדרות"
+
+
+def test_multi_buy_promotion_terms():
+    promo_xml = """<Root><StoreId>123</StoreId><Promotions><Promotion>
+      <PromotionDescription>2 אריזות ב-70</PromotionDescription>
+      <PromotionTotalPrice>70</PromotionTotalPrice><MinQty>2</MinQty>
+      <PromotionStartDate>2026-08-01</PromotionStartDate>
+      <PromotionEndDate>2026-08-31</PromotionEndDate>
+      <RequiresClub>false</RequiresClub>
+      <PromotionItems><Item><ItemCode>7290000000001</ItemCode></Item></PromotionItems>
+    </Promotion></Promotions></Root>""".encode("utf-8")
+    rows = parse_promotions(
+        promo_xml,
+        "SHUFERSAL",
+        "PromoFull7290027600007-002-123-202608190800.xml",
+    )
+    assert len(rows) == 1
+    assert rows[0]["promo_price"] == 35
+    assert rows[0]["promo_total_price"] == 70
+    assert rows[0]["promo_min_quantity"] == 2
+    assert rows[0]["requires_club"] is False
+
+
+def test_ksp_official_product_parser():
+    page = """<!doctype html><html><head>
+      <meta property="product:price:amount" content="39.90">
+      <script type="application/ld+json">{
+        "@context":"https://schema.org","@type":"Product",
+        "name":"Pampers חיתולים מידה 4 44 יחידות",
+        "gtin13":"8700216596701","brand":{"name":"Pampers"},
+        "regularPrice":"54.90",
+        "offers":{"@type":"Offer","price":"39.90","priceValidUntil":"2026-08-31"}
+      }</script>
+    </head><body></body></html>"""
+    parsed = parse_ksp_product_html(
+        page,
+        "https://ksp.co.il/mob/item/440079",
+        expected_need="diapers",
+        fetched_at="2026-08-19T12:00:00+00:00",
+    )
+    assert parsed is not None
+    assert parsed["price_row"]["barcode"] == "8700216596701"
+    assert parsed["price_row"]["branch_code"] == "online"
+    assert parsed["price_row"]["regular_price"] == 54.9
+    assert parsed["promo_row"]["promo_price"] == 39.9
+
+
+def test_superpharm_promo_filename_and_merge():
+    filename = "Promo7290172900007-000-123-20260819-120000.gz"
+    links = _sp_candidates_from_html(f'<a href="Download/{filename}">{filename}</a>')
+    assert len(links) == 1
+    assert links[0]["kind"] == "promo"
+    prices = [{
+        "source_name": "SUPER_PHARM", "branch_code": "123", "barcode": "7290000000001",
+        "need_key": "diapers", "dimension_type": "size", "dimension_value": "3",
+        "regular_price": 50, "source_updated_at": "2026-08-19T10:00:00+00:00",
+    }]
+    promos = [{
+        "source_name": "SUPER_PHARM", "branch_code": "123", "barcode": "7290000000001",
+        "promo_price": 40, "promo_description": "מבצע", "promo_start_at": "2026-08-01",
+        "promo_end_at": "2099-08-31", "promo_min_quantity": 1,
+        "promo_total_price": 40, "requires_club": True,
+    }]
+    merged = merge_prices_and_promos(prices, promos)
+    assert merged[0]["effective_price"] == 40
+    assert merged[0]["requires_club"] is True
