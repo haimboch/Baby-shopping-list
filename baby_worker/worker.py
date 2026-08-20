@@ -21,6 +21,7 @@ from .supabase_rest import SupabaseREST
 from .enrichment import MetadataEnricher
 from .ksp import collect_ksp_official
 from .superpharm_online import collect_superpharm_online
+from .cheapersal_prices import CheaperSalPriceFallback
 
 SCRAPER_TO_DB = {
     "SUPER_PHARM": "super_pharm",
@@ -2537,20 +2538,36 @@ async def collect_source(
         max_items = int(os.environ.get("KSP_MAX_ITEMS", str(max(120, file_limit or 0))))
         category_pages = int(os.environ.get("KSP_CATEGORY_PAGES", "3"))
         discovery_limit = int(os.environ.get("KSP_SEARCH_LIMIT", "80"))
+        catalog_targets = list((target_plan or {}).get("ksp_catalog_targets", []))
         passes, stats = collect_ksp_official(
-            catalog_targets=list((target_plan or {}).get("ksp_catalog_targets", [])),
+            catalog_targets=catalog_targets,
             known_items=list((target_plan or {}).get("ksp_known_items", [])),
             max_items=max_items,
             category_pages=category_pages,
             discovery_limit=discovery_limit,
         )
         data = _merge_source_passes(scraper_name, file_limit, passes)
+        cheaper_stats: dict[str, Any] = {
+            "fallback_used": False,
+            "reason": "official KSP pages contained baby price rows",
+        }
+        if not data["price_rows"]:
+            cheaper = CheaperSalPriceFallback(
+                os.environ.get("CHEAPERSAL_API_KEY", ""),
+                limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
+                online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "true").lower() != "false",
+            )
+            cheaper_pass, cheaper_stats = cheaper.collect("KSP", catalog_targets)
+            passes.append(cheaper_pass)
+            data = _merge_source_passes(scraper_name, file_limit, passes)
         data["scrape_file_limit"] = {
             "max_items": max_items,
             "category_pages": category_pages,
             "barcode_searches": discovery_limit,
+            "cheapersal_price_lookups": int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
         }
         data["ksp_official"] = stats
+        data["cheapersal_price_fallback"] = cheaper_stats
         return data
 
     if scraper_name == "SUPER_PHARM":
@@ -2601,6 +2618,22 @@ async def collect_source(
             )
             passes.append(online_pass)
             data = _merge_source_passes(scraper_name, file_limit, passes)
+        cheaper_stats: dict[str, Any] = {
+            "fallback_used": False,
+            "reason": "official Super-Pharm sources contained baby price rows",
+        }
+        if not data["price_rows"]:
+            cheaper = CheaperSalPriceFallback(
+                os.environ.get("CHEAPERSAL_API_KEY", ""),
+                limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
+                online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "true").lower() != "false",
+            )
+            cheaper_pass, cheaper_stats = cheaper.collect(
+                "SUPER_PHARM",
+                list((target_plan or {}).get("ksp_catalog_targets", [])),
+            )
+            passes.append(cheaper_pass)
+            data = _merge_source_passes(scraper_name, file_limit, passes)
         data["scrape_file_limit"] = {
             "stores": 1,
             "full": full_limit,
@@ -2610,9 +2643,11 @@ async def collect_source(
             "index_max_pages": max_pages,
             "online_max_items": int(os.environ.get("SUPER_PHARM_ONLINE_MAX_ITEMS", "90")),
             "online_category_pages": int(os.environ.get("SUPER_PHARM_ONLINE_CATEGORY_PAGES", "2")),
+            "cheapersal_price_lookups": int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
         }
         data["super_pharm_bootstrap"] = stats
         data["super_pharm_online_fallback"] = online_stats
+        data["cheapersal_price_fallback"] = cheaper_stats
         return data
 
     if scraper_name == "YOHANANOF":
@@ -3077,6 +3112,7 @@ def assess_ingestion_outcome(
             "ksp": data.get("ksp_official"),
             "super_pharm": data.get("super_pharm_bootstrap"),
             "super_pharm_online": data.get("super_pharm_online_fallback"),
+            "cheapersal_prices": data.get("cheapersal_price_fallback"),
         },
         ensure_ascii=False,
     ).lower()
@@ -3207,6 +3243,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "super_pharm_bootstrap": data.get("super_pharm_bootstrap"),
                         "super_pharm_online_fallback": data.get("super_pharm_online_fallback"),
                         "ksp_official": data.get("ksp_official"),
+                        "cheapersal_price_fallback": data.get("cheapersal_price_fallback"),
                         "rami_levy_location": data.get("rami_levy_location"),
                         "osher_ad_bootstrap": data.get("osher_ad_bootstrap"),
                         "targeted_branch_coverage": data.get("targeted_branch_coverage"),
