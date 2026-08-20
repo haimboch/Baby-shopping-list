@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v035-retailer-recovery";
+const CACHE="baby-smart-v036-cheapersal-fallback";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{

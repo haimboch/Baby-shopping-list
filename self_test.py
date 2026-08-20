@@ -7,6 +7,7 @@ from tests.test_core import (
     test_superpharm_online_multi_buy_parser,
     test_superpharm_category_product_url_extraction,
     test_strict_source_outcome_is_not_false_success,
+    test_cheapersal_price_fallback_normalizes_matching_chain,
 )
 
 for fn in (
@@ -18,6 +19,7 @@ for fn in (
     test_superpharm_online_multi_buy_parser,
     test_superpharm_category_product_url_extraction,
     test_strict_source_outcome_is_not_false_success,
+    test_cheapersal_price_fallback_normalizes_matching_chain,
 ):
     fn()
     print(f"✅ {fn.__name__}")
