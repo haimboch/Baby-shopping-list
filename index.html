@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.34</title>
+<title>Baby Smart List · Dashboard v0.35</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -331,7 +331,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.34</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.35</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -564,6 +564,7 @@ const DASHBOARD_CATEGORIES=[
 const SUPPORTED_NEEDS=new Set(["diapers","wipes","formula"]);
 const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be","osher_ad","super_pharm","ksp"];
 const ONLINE_CHAINS=new Set(["ksp"]);
+const isOnlineBranch=row=>ONLINE_CHAINS.has(row?.chain_id)||String(row?.branch_code||"")==="online";
 const CHAIN_LABELS={rami_levy:"רמי לוי",yochananof:"יוחננוף",shufersal:"שופרסל",be:"Be",osher_ad:"אושר עד",super_pharm:"סופר־פארם",ksp:"KSP"};
 function normPlace(v){
   return String(v||"").trim().toLowerCase().replace(/[\u200e\u200f]/g,"").replace(/\s+/g," ");
@@ -1381,7 +1382,7 @@ function directQuote(r,p){
     promo_total_price:r.promo_total_price==null?null:Number(r.promo_total_price),
     is_promotion:activePromotion,
     requires_club:!!r.requires_club,
-    is_online:ONLINE_CHAINS.has(r.chain_id),
+    is_online:isOnlineBranch(r),
     alternative_id:null
   };
 }
@@ -1401,7 +1402,7 @@ async function comparePrices(id){
   $("ctitle").textContent="🔎 "+p.name+(p.need_detail?" · "+p.need_detail:"");
   const radiusKm=Number(household?.search_radius_km||10);
   $("csub").textContent=`השוואה בין ${ACTIVE_CHAINS.length} רשתות לפי ${MODES[p.comparison_mode]||MODES.unit}`;
-  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">סניפים בטווח שבחרת, יחד עם הצעות אונליין מ־KSP. מחיר ישן מדי מוצג בשקיפות אך לא מסומן כעסקה הטובה ביותר.</span>`;
+  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">סניפים בטווח שבחרת, יחד עם הצעות אונליין רשמיות מ־KSP וסופר־פארם. מחיר ישן מדי מוצג בשקיפות אך לא מסומן כעסקה הטובה ביותר.</span>`;
   $("cbody").className="loading";$("cbody").innerHTML="מחשב סניפים בטווח וטוען מחירים…";
   $("purchasebox").classList.add("hidden");$("feedbackbox").classList.add("hidden");
   $("cdlg").showModal();
@@ -1417,9 +1418,10 @@ async function comparePrices(id){
   }
 
   const allBranches=branchData||[];
-  const onlineBranches=allBranches.filter(b=>ONLINE_CHAINS.has(b.chain_id));
-  const geocodedBranches=allBranches.filter(b=>!ONLINE_CHAINS.has(b.chain_id)&&hasCoords(b));
-  const missingCoordCount=allBranches.length-geocodedBranches.length;
+  const onlineBranches=allBranches.filter(isOnlineBranch);
+  const localOnlyBranches=allBranches.filter(b=>!isOnlineBranch(b));
+  const geocodedBranches=localOnlyBranches.filter(hasCoords);
+  const missingCoordCount=localOnlyBranches.length-geocodedBranches.length;
   const localBranches=hasCoords(household)?geocodedBranches.map(b=>({
     ...b,
     distance_km:haversineKm(household.latitude,household.longitude,b.latitude,b.longitude)
@@ -1511,7 +1513,7 @@ async function comparePrices(id){
   const freshCount=results.length-staleCount;
 
   lastCompare={
-    source:"supabase_v034_promotions_online",
+    source:"supabase_v035_promotions_online",
     comparison_mode:p.comparison_mode||"unit",
     candidates_checked:checked,
     results,
