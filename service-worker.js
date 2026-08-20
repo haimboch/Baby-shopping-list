@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v036-cheapersal-fallback";
+const CACHE="baby-smart-v037-ksp-json-api";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{
