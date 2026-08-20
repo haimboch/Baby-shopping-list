@@ -1,6 +1,6 @@
 from baby_worker.classifier import classify_need, parse_dimension, parse_package_quantity
 from baby_worker.cheapersal_prices import CheaperSalPriceFallback
-from baby_worker.ksp import parse_ksp_product_html
+from baby_worker.ksp import parse_ksp_api_product, parse_ksp_product_html
 from baby_worker.superpharm_online import (
     extract_superpharm_product_urls,
     parse_superpharm_product_html,
@@ -123,6 +123,50 @@ def test_ksp_print_page_fallback_parser():
     assert parsed is not None
     assert parsed["price_row"]["regular_price"] == 39.9
     assert parsed["price_row"]["barcode"] == "8700216596701"
+
+
+def test_ksp_json_api_barcode_search_parser():
+    payload = {
+        "result": {
+            "name": "Pampers חיתולים מידה 5 37 יחידות",
+            "uin": "440079",
+            "price": 54.9,
+            "min_price": 44.9,
+            "brandName": "Pampers",
+            "labels": [{"msg": "מחיר לחברי מועדון"}],
+        }
+    }
+    parsed = parse_ksp_api_product(
+        payload,
+        expected_barcode="8700216596701",
+        expected_need="diapers",
+        fetched_at="2026-08-20T12:00:00+00:00",
+    )
+    assert parsed is not None
+    assert parsed["price_row"]["barcode"] == "8700216596701"
+    assert parsed["price_row"]["regular_price"] == 54.9
+    assert parsed["promo_row"]["promo_price"] == 44.9
+    assert parsed["promo_row"]["requires_club"] is True
+
+
+def test_ksp_json_api_detail_finds_barcode_in_specification():
+    payload = {
+        "result": {
+            "data": {
+                "name": "מגבונים לחים לתינוק ללא בישום 4 יחידות",
+                "price": 24.9,
+                "brandName": "Huggies",
+            },
+            "specification": [
+                {"name": "ברקוד", "value": "7290000195537"},
+            ],
+        }
+    }
+    parsed = parse_ksp_api_product(payload, item_id="70286", expected_need="wipes")
+    assert parsed is not None
+    assert parsed["price_row"]["barcode"] == "7290000195537"
+    assert parsed["price_row"]["regular_price"] == 24.9
+    assert parsed["promo_row"] is None
 
 
 def test_superpharm_promo_filename_and_merge():
