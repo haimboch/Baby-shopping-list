@@ -18,6 +18,7 @@ from .classifier import (
 
 
 KSP_BASE_URL = "https://ksp.co.il"
+KSP_API_BASE = f"{KSP_BASE_URL}/m_action/api"
 KSP_ONLINE_BRANCH = "online"
 KSP_CATEGORY_PATHS = {
     "diapers": "/mob/cat/7043",
@@ -87,6 +88,143 @@ def _iter_json(value: Any) -> Iterable[dict[str, Any]]:
     elif isinstance(value, list):
         for child in value:
             yield from _iter_json(child)
+
+
+def _find_api_barcode(payload: Any) -> str | None:
+    """Find a GTIN in KSP's API response, including specification rows."""
+    for obj in _iter_json(payload):
+        for key, value in obj.items():
+            normalized = str(key).lower().replace("_", "")
+            if normalized in {"barcode", "barCode".lower(), "gtin", "gtin13", "ean", "ean13"}:
+                found = _barcode(value)
+                if found:
+                    return found
+        label = _clean_text(obj.get("name") or obj.get("title") or obj.get("label")).lower()
+        if "ברקוד" in label or "barcode" in label or "gtin" in label:
+            found = _barcode(obj.get("value") or obj.get("val") or obj.get("text"))
+            if found:
+                return found
+    return None
+
+
+def _api_result(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    result = payload.get("result")
+    return result if isinstance(result, dict) else payload
+
+
+def _api_items(payload: Any) -> list[dict[str, Any]]:
+    result = _api_result(payload)
+    items = result.get("items")
+    if isinstance(items, list):
+        return [item for item in items if isinstance(item, dict)]
+    data = result.get("data")
+    return [data] if isinstance(data, dict) else []
+
+
+def parse_ksp_api_product(
+    payload: dict[str, Any],
+    *,
+    item_id: str | None = None,
+    expected_barcode: str | None = None,
+    expected_need: str | None = None,
+    fetched_at: str | None = None,
+) -> dict[str, Any] | None:
+    """Normalize one KSP internal JSON API response into retail price rows.
+
+    Barcode search results do not always repeat the GTIN in every item object.
+    In that narrow case the exact barcode used for the search is accepted,
+    provided the returned product still classifies to the expected baby need.
+    """
+    fetched_at = fetched_at or utcnow()
+    result = _api_result(payload)
+    data = result.get("data") if isinstance(result.get("data"), dict) else result
+    if not isinstance(data, dict):
+        return None
+
+    name = _clean_text(data.get("name") or data.get("productName") or data.get("title"))
+    if not name:
+        return None
+    detected_need = classify_need(name)
+    if expected_need and detected_need != expected_need:
+        return None
+    need_key = expected_need or detected_need
+    if need_key not in KSP_CATEGORY_PATHS:
+        return None
+
+    barcode = _find_api_barcode(payload) or _barcode(expected_barcode)
+    if not barcode:
+        return None
+
+    price = _money(data.get("price") or data.get("current_price") or data.get("regularPrice"))
+    club_price = _money(data.get("min_price") or data.get("bms_price") or data.get("clubPrice"))
+    if price is None and club_price is None:
+        return None
+    regular_price = max(value for value in (price, club_price) if value is not None)
+    promo_price = club_price if club_price is not None and club_price < regular_price else None
+
+    resolved_item_id = _clean_text(data.get("uin") or data.get("id") or item_id) or None
+    brand = _brand_value(data.get("brandName") or data.get("brand")) or infer_brand(name, None)
+    dimension_type, dimension_value = parse_dimension(name, need_key)
+    package_quantity, package_unit = parse_package_quantity(name, need_key, None, None)
+    labels = data.get("labels") if isinstance(data.get("labels"), list) else []
+    label_text = " | ".join(
+        _clean_text(label.get("msg") if isinstance(label, dict) else label)
+        for label in labels
+        if _clean_text(label.get("msg") if isinstance(label, dict) else label)
+    )
+    description = label_text or ("מחיר מועדון KSP" if promo_price is not None else "")
+    item_url = f"{KSP_BASE_URL}/mob/item/{resolved_item_id}" if resolved_item_id else None
+
+    price_row = {
+        "source_name": "KSP",
+        "subchain_id": None,
+        "branch_code": KSP_ONLINE_BRANCH,
+        "barcode": barcode,
+        "need_key": need_key,
+        "dimension_type": dimension_type,
+        "dimension_value": dimension_value,
+        "brand": brand,
+        "product_name": name,
+        "package_quantity": package_quantity,
+        "package_unit": package_unit,
+        "regular_price": regular_price,
+        "source_updated_at": fetched_at,
+        "raw_source": {
+            "source": "ksp_internal_json_api",
+            "item_id": resolved_item_id,
+            "item_url": item_url,
+            "current_price": price,
+            "club_price": club_price,
+        },
+    }
+    promo_row = None
+    if promo_price is not None:
+        promo_row = {
+            "source_name": "KSP",
+            "subchain_id": None,
+            "branch_code": KSP_ONLINE_BRANCH,
+            "barcode": barcode,
+            "promo_price": promo_price,
+            "promo_description": description or "מחיר מועדון KSP",
+            "promo_start_at": fetched_at,
+            "promo_end_at": None,
+            "promo_min_quantity": 1,
+            "promo_total_price": promo_price,
+            "requires_club": True,
+            "raw_promo": {
+                "source": "ksp_internal_json_api",
+                "item_id": resolved_item_id,
+                "item_url": item_url,
+            },
+        }
+    return {
+        "price_row": price_row,
+        "promo_row": promo_row,
+        "item_url": item_url,
+        "item_id": resolved_item_id,
+    }
 
 
 def _json_payloads(page_html: str) -> list[Any]:
@@ -373,6 +511,24 @@ def _get(
     raise last_error
 
 
+def _get_json(
+    session: requests.Session,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    timeout: int = 35,
+) -> dict[str, Any]:
+    url = urljoin(f"{KSP_API_BASE}/", path.lstrip("/"))
+    response = _get(session, url, params=params, timeout=timeout)
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "json" not in content_type and not response.text.lstrip().startswith(("{", "[")):
+        raise RuntimeError(f"non-JSON response from {response.url}")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"unexpected JSON response from {response.url}")
+    return payload
+
+
 def collect_ksp_official(
     *,
     catalog_targets: list[dict[str, str]] | None = None,
@@ -390,11 +546,12 @@ def collect_ksp_official(
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 "
-                "Baby-Smart-List/0.36"
+                "Baby-Smart-List/0.37"
             ),
-            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+            "Accept": "application/json,text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "he-IL,he;q=0.9,en;q=0.6",
-            "Referer": f"{KSP_BASE_URL}/mob/",
+            "Referer": f"{KSP_BASE_URL}/web/",
+            "Origin": KSP_BASE_URL,
         }
     )
 
@@ -405,6 +562,10 @@ def collect_ksp_official(
     search_requests = 0
     category_requests = 0
     item_page_attempts = 0
+    api_search_requests = 0
+    api_item_requests = 0
+    api_responses = 0
+    api_parsed = 0
 
     def add_url(raw_url: str, need_key: str | None) -> None:
         parsed = urlparse(urljoin(KSP_BASE_URL, raw_url))
@@ -427,10 +588,83 @@ def collect_ksp_official(
     for item in KSP_SEED_ITEMS:
         add_url(f"/mob/item/{item['item_id']}", item.get("need_key"))
 
+    # KSP's React storefront uses a JSON endpoint that is less likely to be
+    # challenged than the rendered HTML. Exact GTIN searches are attempted
+    # first so the requested barcode remains the identity anchor.
+    api_price_rows: list[dict[str, Any]] = []
+    api_promo_rows: list[dict[str, Any]] = []
+    api_item_ids: set[str] = set()
+    for target in targets:
+        if api_search_requests >= discovery_limit or len(api_price_rows) >= max_items:
+            break
+        barcode = _barcode(target.get("barcode"))
+        need_key = str(target.get("need_key") or "").strip() or None
+        if not barcode or need_key not in KSP_CATEGORY_PATHS:
+            continue
+        api_search_requests += 1
+        try:
+            payload = _get_json(session, "category/", params={"search": barcode})
+            api_responses += 1
+            candidates = _api_items(payload)
+            for item in candidates:
+                item_barcode = _find_api_barcode(item)
+                if item_barcode and item_barcode != barcode:
+                    continue
+                if not item_barcode and len(candidates) != 1:
+                    continue
+                item_id = _clean_text(item.get("uin") or item.get("id")) or None
+                parsed = parse_ksp_api_product(
+                    {"result": item},
+                    item_id=item_id,
+                    expected_barcode=barcode,
+                    expected_need=need_key,
+                )
+                if not parsed:
+                    continue
+                api_price_rows.append(parsed["price_row"])
+                if parsed.get("promo_row"):
+                    api_promo_rows.append(parsed["promo_row"])
+                if item_id:
+                    api_item_ids.add(item_id)
+                    add_url(f"/mob/item/{item_id}", need_key)
+                api_parsed += 1
+                break
+        except Exception as exc:  # pragma: no cover - network behavior
+            errors.append(f"api search {barcode}: {type(exc).__name__}: {exc}")
+
+    # Enrich known/seeded items through the product JSON endpoint. These rows
+    # are accepted only when the API itself contains a real barcode.
+    known_api_targets: list[tuple[str, str | None]] = []
+    for product_url, need_key in list(url_need.items()):
+        match = _ITEM_URL_RE.search(product_url)
+        item_id = (match.group("plain") or match.group("legacy")) if match else None
+        if item_id and item_id not in api_item_ids:
+            known_api_targets.append((item_id, need_key))
+    for item_id, need_key in known_api_targets:
+        if api_item_requests >= max_items or len(api_price_rows) >= max_items:
+            break
+        api_item_requests += 1
+        try:
+            payload = _get_json(session, f"item/{item_id}")
+            api_responses += 1
+            parsed = parse_ksp_api_product(
+                payload,
+                item_id=item_id,
+                expected_need=need_key,
+            )
+            if not parsed:
+                continue
+            api_price_rows.append(parsed["price_row"])
+            if parsed.get("promo_row"):
+                api_promo_rows.append(parsed["promo_row"])
+            api_parsed += 1
+        except Exception as exc:  # pragma: no cover - network behavior
+            errors.append(f"api item {item_id}: {type(exc).__name__}: {exc}")
+
     # Category discovery is a small fixed number of requests and can expose
     # new products. It runs before barcode searches, which are more likely to
     # be throttled by KSP.
-    if len(url_need) < max_items:
+    if not api_price_rows and len(url_need) < max_items:
         for need_key, path in KSP_CATEGORY_PATHS.items():
             for page in range(1, max(1, category_pages) + 1):
                 if len(url_need) >= max_items:
@@ -452,31 +686,33 @@ def collect_ksp_official(
                     break
 
     # Exact barcode search safely links KSP offers to the catalog we already trust.
-    known_barcodes = {str(item.get("barcode") or "") for item in known}
-    for target in targets:
-        if len(url_need) >= max_items or search_requests >= discovery_limit:
-            break
-        barcode = str(target.get("barcode") or "").strip()
-        need_key = str(target.get("need_key") or "").strip() or None
-        if not barcode or barcode in known_barcodes:
-            continue
-        search_requests += 1
-        try:
-            response = _get(
-                session,
-                f"{KSP_BASE_URL}/mob/cat/",
-                params={"search": barcode},
-            )
-            for item_url in extract_ksp_item_urls(response.text):
-                add_url(item_url, need_key)
-        except Exception as exc:  # pragma: no cover - network behavior
-            errors.append(f"search {barcode}: {type(exc).__name__}: {exc}")
+    if not api_price_rows:
+        known_barcodes = {str(item.get("barcode") or "") for item in known}
+        for target in targets:
+            if len(url_need) >= max_items or search_requests >= discovery_limit:
+                break
+            barcode = str(target.get("barcode") or "").strip()
+            need_key = str(target.get("need_key") or "").strip() or None
+            if not barcode or barcode in known_barcodes:
+                continue
+            search_requests += 1
+            try:
+                response = _get(
+                    session,
+                    f"{KSP_BASE_URL}/mob/cat/",
+                    params={"search": barcode},
+                )
+                for item_url in extract_ksp_item_urls(response.text):
+                    add_url(item_url, need_key)
+            except Exception as exc:  # pragma: no cover - network behavior
+                errors.append(f"search {barcode}: {type(exc).__name__}: {exc}")
 
-    price_rows: list[dict[str, Any]] = []
-    promo_rows: list[dict[str, Any]] = []
+    price_rows: list[dict[str, Any]] = list(api_price_rows)
+    promo_rows: list[dict[str, Any]] = list(api_promo_rows)
     fetched_urls = 0
     parsed_urls = 0
-    for product_url, expected_need in list(url_need.items())[:max_items]:
+    html_targets = [] if api_price_rows else list(url_need.items())[:max_items]
+    for product_url, expected_need in html_targets:
         item_match = _ITEM_URL_RE.search(product_url)
         item_id = (item_match.group("plain") or item_match.group("legacy")) if item_match else None
         variants = [product_url]
@@ -517,7 +753,7 @@ def collect_ksp_official(
         "pass_name": "ksp_official_online",
         "file_types": ["OFFICIAL_PRODUCT_PAGES"],
         "limit": max_items,
-        "files_seen": fetched_urls,
+        "files_seen": api_responses + fetched_urls,
         "price_rows": price_rows,
         "promo_rows": promo_rows,
         "store_rows": ([
@@ -531,7 +767,10 @@ def collect_ksp_official(
             }
         ] if price_rows else []),
         "errors": errors[:30],
-        "kind_counts": {"official_product_page": fetched_urls},
+        "kind_counts": {
+            "official_json_api": api_responses,
+            "official_product_page": fetched_urls,
+        },
         "sample_files": list(url_need.keys())[:12],
         "price_schema_diagnostics": [],
     }
@@ -541,6 +780,10 @@ def collect_ksp_official(
         "known_item_targets": len(known),
         "catalog_targets": len(targets),
         "search_requests": search_requests,
+        "api_search_requests": api_search_requests,
+        "api_item_requests": api_item_requests,
+        "api_responses": api_responses,
+        "api_items_parsed": api_parsed,
         "category_requests": category_requests,
         "item_urls_discovered": len(url_need),
         "item_page_attempts": item_page_attempts,
@@ -548,7 +791,7 @@ def collect_ksp_official(
         "item_pages_parsed": parsed_urls,
         "baby_prices": len(price_rows),
         "active_promotions": len(promo_rows),
-        "blocked": bool(errors) and fetched_urls == 0,
+        "blocked": bool(errors) and api_responses == 0 and fetched_urls == 0,
         "errors": errors[:12],
     }
 
