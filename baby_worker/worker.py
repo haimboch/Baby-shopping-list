@@ -19,6 +19,7 @@ from urllib.parse import quote
 from .xmlfeeds import file_kind, parse_price_rows, parse_promotions, parse_stores, timestamp_from_filename, price_file_diagnostics
 from .supabase_rest import SupabaseREST
 from .enrichment import MetadataEnricher
+from .ksp import collect_ksp_official
 
 SCRAPER_TO_DB = {
     "SUPER_PHARM": "super_pharm",
@@ -26,6 +27,7 @@ SCRAPER_TO_DB = {
     "YOHANANOF": "yochananof",
     "SHUFERSAL": "shufersal",  # split to Be later by subchain
     "OSHER_AD": "osher_ad",
+    "KSP": "ksp",
 }
 CHAIN_TO_SCRAPER = {
     "super_pharm": "SUPER_PHARM",
@@ -34,6 +36,7 @@ CHAIN_TO_SCRAPER = {
     "shufersal": "SHUFERSAL",
     "be": "SHUFERSAL",
     "osher_ad": "OSHER_AD",
+    "ksp": "KSP",
 }
 
 def utcnow() -> str:
@@ -62,7 +65,10 @@ def normalize_timestamp(value: str | None) -> str | None:
     # Keep valid-ish ISO as-is. DB can parse it.
     if "T" in s:
         return s
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y%m%d%H%M", "%Y%m%d%H%M%S", "%d/%m/%Y %H:%M"):
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y%m%d%H%M",
+        "%Y%m%d%H%M%S", "%Y%m%d", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+    ):
         try:
             return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc).isoformat()
         except ValueError:
@@ -168,8 +174,26 @@ def filter_stale_against_db(db: SupabaseREST, prices: list[dict[str, Any]]) -> t
     return kept, stale
 
 
+def _promo_is_active(promo: dict[str, Any], now: datetime | None = None) -> bool:
+    """Accept undated or currently active promotions, reject future/expired ones."""
+    now = now or datetime.now(timezone.utc)
+    start = normalize_timestamp(promo.get("promo_start_at"))
+    end = normalize_timestamp(promo.get("promo_end_at"))
+    try:
+        if start and datetime.fromisoformat(start.replace("Z", "+00:00")) > now:
+            return False
+        if end and datetime.fromisoformat(end.replace("Z", "+00:00")) < now:
+            return False
+    except ValueError:
+        return False
+    return True
+
+
 def merge_prices_and_promos(price_rows: list[dict[str, Any]], promos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    pmap = {(r["source_name"], r["branch_code"], r["barcode"]): r for r in promos}
+    pmap = {
+        (r["source_name"], r["branch_code"], r["barcode"]): r
+        for r in promos if _promo_is_active(r)
+    }
     out = []
     for r in price_rows:
         promo = pmap.get((r["source_name"], r["branch_code"], r["barcode"]))
@@ -180,6 +204,8 @@ def merge_prices_and_promos(price_rows: list[dict[str, Any]], promos: list[dict[
                 "promo_description": promo.get("promo_description"),
                 "promo_start_at": normalize_timestamp(promo.get("promo_start_at")),
                 "promo_end_at": normalize_timestamp(promo.get("promo_end_at")),
+                "promo_min_quantity": promo.get("promo_min_quantity") or 1,
+                "promo_total_price": promo.get("promo_total_price"),
                 "requires_club": bool(promo.get("requires_club")),
             })
             raw = dict(row.get("raw_source") or {})
@@ -213,6 +239,8 @@ def to_db_price(row: dict[str, Any]) -> dict[str, Any]:
         "promo_description": row.get("promo_description"),
         "promo_start_at": row.get("promo_start_at"),
         "promo_end_at": row.get("promo_end_at"),
+        "promo_min_quantity": row.get("promo_min_quantity"),
+        "promo_total_price": row.get("promo_total_price"),
         "requires_club": bool(row.get("requires_club")),
         "source_updated_at": row.get("source_updated_at"),
         "last_seen_at": row.get("last_seen_at") or utcnow(),
@@ -230,6 +258,67 @@ def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
         "active": True,
         "last_seen_at": utcnow(),
     }
+
+
+_CATALOG_NEEDS = {
+    "diapers": {"category": "החתלה", "need_name": "טיטולים"},
+    "wipes": {"category": "החתלה", "need_name": "מגבונים"},
+    "formula": {"category": "האכלה", "need_name": "תמ״ל"},
+}
+
+
+def save_official_catalog_rows(db: SupabaseREST, prices: list[dict[str, Any]]) -> dict[str, Any]:
+    """Persist only previously unknown products with useful official metadata."""
+    candidates: dict[str, dict[str, Any]] = {}
+    for row in prices:
+        need = str(row.get("need_key") or "")
+        barcode = str(row.get("barcode") or "")
+        name = str(row.get("product_name") or "").strip()
+        brand = str(row.get("brand") or "").strip()
+        if (
+            row.get("chain_id") not in {"ksp", "super_pharm"}
+            or need not in _CATALOG_NEEDS
+            or not barcode or not name or not brand
+        ):
+            continue
+        meta = _CATALOG_NEEDS[need]
+        dimension_type = str(row.get("dimension_type") or "none")
+        dimension_value = row.get("dimension_value")
+        detail = None
+        if dimension_value:
+            detail = ("מידה " if dimension_type == "size" else "שלב ") + str(dimension_value)
+        candidates[barcode] = {
+            "barcode": barcode,
+            "category": meta["category"],
+            "need_name": meta["need_name"],
+            "need_detail": detail,
+            "need_key": need,
+            "dimension_type": dimension_type,
+            "dimension_value": dimension_value,
+            "brand": brand,
+            "product_name": name,
+            "variant": None,
+            "package_quantity": row.get("package_quantity"),
+            "package_unit": row.get("package_unit") or ("גרם" if need == "formula" else "יחידות"),
+            "active": True,
+            "source_name": "KSP official" if row.get("chain_id") == "ksp" else "Super-Pharm transparency",
+            "verified_at": utcnow(),
+        }
+
+    known: set[str] = set()
+    barcodes = sorted(candidates)
+    for i in range(0, len(barcodes), 40):
+        chunk = barcodes[i:i + 40]
+        for row in db.select(
+            "baby_product_catalog",
+            {"select": "barcode", "barcode": f"in.({','.join(chunk)})"},
+        ):
+            if row.get("barcode"):
+                known.add(str(row["barcode"]))
+    new_rows = [row for barcode, row in candidates.items() if barcode not in known]
+    if new_rows:
+        db.upsert("baby_product_catalog", new_rows, "barcode")
+    return {"candidates": len(candidates), "already_known": len(known), "saved": len(new_rows)}
 
 
 def _norm_place(value: Any) -> str:
@@ -263,7 +352,11 @@ def _is_numeric_city(value: Any) -> bool:
     return bool(re.fullmatch(r"\d+", _norm_place(value)))
 
 def build_target_branch_plan(db: SupabaseREST | None) -> dict[str, Any]:
-    empty = {"cities": [], "locality_codes": {}, "targets": {}, "known_branch_counts": {}, "diagnostics": []}
+    empty = {
+        "cities": [], "locality_codes": {}, "targets": {},
+        "known_branch_counts": {}, "ksp_catalog_targets": [],
+        "ksp_known_items": [], "diagnostics": [],
+    }
     if db is None:
         return empty
     try:
@@ -306,11 +399,38 @@ def build_target_branch_plan(db: SupabaseREST | None) -> dict[str, Any]:
             named=_strong_branch_city_match(b.get("branch_name"), city)
             if named or textual or numeric: targets[chain].add(code)
         diagnostics.append(f"{city}: strong={len(strong)} codes={selected or '-'}")
+    catalog_targets: list[dict[str, str]] = []
+    known_items: list[dict[str, str]] = []
+    try:
+        catalog_targets = [
+            {"barcode": str(r.get("barcode") or ""), "need_key": str(r.get("need_key") or "")}
+            for r in db.select(
+                "baby_product_catalog",
+                {"select": "barcode,need_key", "active": "eq.true", "limit": "500"},
+            )
+            if r.get("barcode") and r.get("need_key")
+        ]
+        for r in db.select(
+            "baby_retail_prices",
+            {"select": "barcode,need_key,raw_source", "chain_id": "eq.ksp", "limit": "500"},
+        ):
+            raw = r.get("raw_source") if isinstance(r.get("raw_source"), dict) else {}
+            known_items.append({
+                "barcode": str(r.get("barcode") or ""),
+                "need_key": str(r.get("need_key") or ""),
+                "item_id": str(raw.get("item_id") or ""),
+                "item_url": str(raw.get("item_url") or ""),
+            })
+    except Exception as exc:
+        diagnostics.append(f"KSP target read failed: {type(exc).__name__}: {exc}")
+
     return {
         "cities": cities,
         "locality_codes": locality_codes,
         "targets": {k: sorted(v) for k,v in targets.items()},
         "known_branch_counts": dict(known),
+        "ksp_catalog_targets": catalog_targets,
+        "ksp_known_items": known_items,
         "diagnostics": diagnostics[:20],
     }
 
@@ -321,7 +441,13 @@ def _filter_price_pass_to_branches(p: dict[str, Any], target_codes: set[str]) ->
     if not target_codes: return p
     before=list(p.get("price_rows", []))
     p["price_rows"]=[r for r in before if str(r.get("branch_code") or "") in target_codes]
-    p["target_filter"]={"targets": sorted(target_codes), "rows_before": len(before), "rows_after": len(p["price_rows"])}
+    promo_before=list(p.get("promo_rows", []))
+    p["promo_rows"]=[r for r in promo_before if str(r.get("branch_code") or "") in target_codes]
+    p["target_filter"]={
+        "targets": sorted(target_codes), "rows_before": len(before),
+        "rows_after": len(p["price_rows"]), "promo_rows_before": len(promo_before),
+        "promo_rows_after": len(p["promo_rows"]),
+    }
     return p
 
 
@@ -335,7 +461,7 @@ SP_CHAIN_EAN = "7290172900007"
 # simple href.
 SP_FILENAME_RE = re.compile(
     r"(?P<filename>"
-    r"(?P<kind>PriceFull|Price|Stores)"
+    r"(?P<kind>PromoFull|Promo|PriceFull|Price|Stores)"
     r"7290172900007-000-"
     r"(?:(?P<branch>\d+)-)?"
     r"(?P<timestamp>\d{8}-\d{6}|\d{8}-\d+)"
@@ -349,6 +475,8 @@ def _sp_kind(kind_raw: str) -> str:
     return {
         "pricefull": "price_full",
         "price": "price",
+        "promofull": "promo_full",
+        "promo": "promo",
         "stores": "stores",
     }[kind_raw.lower()]
 
@@ -530,6 +658,8 @@ def _scan_sp_index(
     type_value = {
         "price_full": "PriceFull",
         "price": "Price",
+        "promo_full": "PromoFull",
+        "promo": "Promo",
         "stores": "Stores",
     }[wanted_kind]
 
@@ -692,6 +822,10 @@ def _download_sp_pass(
                     xml_name,
                 )
                 result["store_rows"].extend(parsed_stores)
+            elif item["kind"] in ("promo_full", "promo"):
+                result["promo_rows"].extend(
+                    parse_promotions(payload, "SUPER_PHARM", xml_name)
+                )
             else:
                 parsed = parse_price_rows(
                     payload,
@@ -738,6 +872,7 @@ def _download_sp_pass(
         f"🔎 SUPER_PHARM/{pass_name}: "
         f"files={result['files_seen']} "
         f"baby_rows={len(result['price_rows'])} "
+        f"promos={len(result['promo_rows'])} "
         f"stores={len(result['store_rows'])}"
     )
     return result
@@ -747,6 +882,8 @@ def _collect_superpharm_official(
     *,
     full_limit: int,
     incremental_limit: int,
+    promo_full_limit: int,
+    promo_incremental_limit: int,
     max_pages: int,
     session: requests.Session | None = None,
 ) -> tuple[
@@ -789,6 +926,18 @@ def _collect_superpharm_official(
             target_count=incremental_limit,
             max_pages=max_pages,
         )
+        promo_full_links, promo_full_scan = _scan_sp_index(
+            session,
+            wanted_kind="promo_full",
+            target_count=promo_full_limit,
+            max_pages=max_pages,
+        )
+        promo_links, promo_scan = _scan_sp_index(
+            session,
+            wanted_kind="promo",
+            target_count=promo_incremental_limit,
+            max_pages=max_pages,
+        )
         store_links, store_scan = _scan_sp_index(
             session,
             wanted_kind="stores",
@@ -817,10 +966,26 @@ def _collect_superpharm_official(
             file_type="PRICE_FILE",
             limit=incremental_limit,
         )
+        promo_full_pass = _download_sp_pass(
+            session,
+            promo_full_links,
+            pass_name="promo_full",
+            file_type="PROMO_FULL_FILE",
+            limit=promo_full_limit,
+        )
+        promo_incremental_pass = _download_sp_pass(
+            session,
+            promo_links,
+            pass_name="promo_incremental",
+            file_type="PROMO_FILE",
+            limit=promo_incremental_limit,
+        )
 
         scan_errors = (
             full_scan["errors"]
             + price_scan["errors"]
+            + promo_full_scan["errors"]
+            + promo_scan["errors"]
             + store_scan["errors"]
         )
         stores_pass["errors"] = (
@@ -834,6 +999,8 @@ def _collect_superpharm_official(
             "filename_scan": True,
             "full_scan": full_scan,
             "incremental_scan": price_scan,
+            "promo_full_scan": promo_full_scan,
+            "promo_incremental_scan": promo_scan,
             "stores_scan": store_scan,
             "full_files_seen": full_pass[
                 "files_seen"
@@ -847,6 +1014,10 @@ def _collect_superpharm_official(
             "incremental_baby_rows": len(
                 incremental_pass["price_rows"]
             ),
+            "promo_full_files_seen": promo_full_pass["files_seen"],
+            "promo_full_rows": len(promo_full_pass["promo_rows"]),
+            "promo_incremental_files_seen": promo_incremental_pass["files_seen"],
+            "promo_incremental_rows": len(promo_incremental_pass["promo_rows"]),
             "stores_files_seen": stores_pass[
                 "files_seen"
             ],
@@ -862,6 +1033,8 @@ def _collect_superpharm_official(
             stores_pass,
             full_pass,
             incremental_pass,
+            promo_full_pass,
+            promo_incremental_pass,
         ], stats
 
     finally:
@@ -2345,6 +2518,26 @@ async def collect_source(
 ) -> dict[str, Any]:
     """Collect retailer data with a chain-specific source strategy."""
 
+    if scraper_name == "KSP":
+        max_items = int(os.environ.get("KSP_MAX_ITEMS", str(max(120, file_limit or 0))))
+        category_pages = int(os.environ.get("KSP_CATEGORY_PAGES", "3"))
+        discovery_limit = int(os.environ.get("KSP_SEARCH_LIMIT", "80"))
+        passes, stats = collect_ksp_official(
+            catalog_targets=list((target_plan or {}).get("ksp_catalog_targets", [])),
+            known_items=list((target_plan or {}).get("ksp_known_items", [])),
+            max_items=max_items,
+            category_pages=category_pages,
+            discovery_limit=discovery_limit,
+        )
+        data = _merge_source_passes(scraper_name, file_limit, passes)
+        data["scrape_file_limit"] = {
+            "max_items": max_items,
+            "category_pages": category_pages,
+            "barcode_searches": discovery_limit,
+        }
+        data["ksp_official"] = stats
+        return data
+
     if scraper_name == "SUPER_PHARM":
         full_default = file_limit if file_limit is not None else 20
         full_limit = int(
@@ -2360,6 +2553,15 @@ async def collect_source(
                 str(max(1, inc_default)),
             )
         )
+        promo_full_limit = int(
+            os.environ.get("SUPER_PHARM_PROMO_FULL_FILE_LIMIT", str(max(1, full_default)))
+        )
+        promo_incremental_limit = int(
+            os.environ.get(
+                "SUPER_PHARM_PROMO_INCREMENTAL_FILE_LIMIT",
+                str(max(1, inc_default)),
+            )
+        )
         max_pages = int(
             os.environ.get("SUPER_PHARM_INDEX_MAX_PAGES", "120")
         )
@@ -2367,6 +2569,8 @@ async def collect_source(
         passes, stats = _collect_superpharm_official(
             full_limit=full_limit,
             incremental_limit=incremental_limit,
+            promo_full_limit=promo_full_limit,
+            promo_incremental_limit=promo_incremental_limit,
             max_pages=max_pages,
         )
         data = _merge_source_passes(
@@ -2378,6 +2582,8 @@ async def collect_source(
             "stores": 1,
             "full": full_limit,
             "incremental": incremental_limit,
+            "promo_full": promo_full_limit,
+            "promo_incremental": promo_incremental_limit,
             "index_max_pages": max_pages,
         }
         data["super_pharm_bootstrap"] = stats
@@ -2425,15 +2631,29 @@ async def collect_source(
             pass_name="incremental",
             collect_schema_diagnostics=not bool(full_pass["price_rows"]),
         )
+        promo_full_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PROMO_FULL_FILE"],
+            limit=full_limit,
+            pass_name="promo_full",
+        )
+        promo_incremental_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PROMO_FILE"],
+            limit=incremental_limit,
+            pass_name="promo_incremental",
+        )
 
         if yoh_targets:
             full_pass = _filter_price_pass_to_branches(full_pass, yoh_targets)
             incremental_pass = _filter_price_pass_to_branches(incremental_pass, yoh_targets)
+            promo_full_pass = _filter_price_pass_to_branches(promo_full_pass, yoh_targets)
+            promo_incremental_pass = _filter_price_pass_to_branches(promo_incremental_pass, yoh_targets)
 
         data = _merge_source_passes(
             scraper_name,
             file_limit,
-            [stores_pass, full_pass, incremental_pass],
+            [stores_pass, full_pass, incremental_pass, promo_full_pass, promo_incremental_pass],
         )
         data["scrape_file_limit"] = {
             "stores": 1,
@@ -2489,18 +2709,37 @@ async def collect_source(
                 max_pages=max_pages,
             )
         )
+        promo_limit = int(os.environ.get("SHUFERSAL_PROMO_FILE_LIMIT", str(max(10, fallback))))
+        promo_full_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PROMO_FULL_FILE"],
+            limit=promo_limit,
+            pass_name="promo_full",
+        )
+        promo_incremental_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PROMO_FILE"],
+            limit=promo_limit,
+            pass_name="promo_incremental",
+        )
+        promo_targets = shuf_targets | be_targets
+        if promo_targets:
+            promo_full_pass = _filter_price_pass_to_branches(promo_full_pass, promo_targets)
+            promo_incremental_pass = _filter_price_pass_to_branches(promo_incremental_pass, promo_targets)
 
         data = _merge_source_passes(
             scraper_name,
             file_limit,
             [stores_pass]
-            + target_passes,
+            + target_passes
+            + [promo_full_pass, promo_incremental_pass],
         )
         data["scrape_file_limit"] = {
             "stores": 1,
             "targeted": True,
             "fallback": fallback,
             "index_max_pages": max_pages,
+            "promotions": promo_limit,
         }
         data[
             "shufersal_bootstrap"
@@ -2560,6 +2799,18 @@ async def collect_source(
             file_types=["PRICE_FILE"],
             limit=incremental_limit,
             pass_name="incremental_library",
+        )
+        promo_full = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PROMO_FULL_FILE"],
+            limit=full_limit,
+            pass_name="promo_full_library",
+        )
+        promo_inc = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PROMO_FILE"],
+            limit=incremental_limit,
+            pass_name="promo_incremental_library",
         )
 
         library_passes = [
@@ -2628,7 +2879,7 @@ async def collect_source(
         data = _merge_source_passes(
             scraper_name,
             file_limit,
-            merged_passes,
+            merged_passes + [promo_full, promo_inc],
         )
 
         library_price_branches = sorted({
@@ -2653,6 +2904,8 @@ async def collect_source(
                     "24",
                 )
             ),
+            "promo_full": full_limit,
+            "promo_incremental": incremental_limit,
         }
 
         data["osher_ad_bootstrap"] = {
@@ -2730,8 +2983,21 @@ async def collect_source(
             limit=base_limit,
             pass_name="mixed",
         )
+        promo_full_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PROMO_FULL_FILE"],
+            limit=base_limit,
+            pass_name="promo_full",
+        )
+        promo_incremental_pass = await _collect_scraper_pass(
+            scraper_name,
+            file_types=["PROMO_FILE"],
+            limit=base_limit,
+            pass_name="promo_incremental",
+        )
         data = _merge_source_passes(
-            scraper_name, file_limit, [stores_pass, mixed_pass]
+            scraper_name, file_limit,
+            [stores_pass, mixed_pass, promo_full_pass, promo_incremental_pass],
         )
         data["scrape_file_limit"] = {
             "stores": 1,
@@ -2785,6 +3051,10 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         stale_rows_skipped = 0
         if db and not dry_run and prices:
             prices, stale_rows_skipped = filter_stale_against_db(db, prices)
+
+        official_catalog_stats = {"candidates": 0, "already_known": 0, "saved": 0}
+        if db and not dry_run and prices:
+            official_catalog_stats = save_official_catalog_rows(db, prices)
 
         # One-time metadata enrichment for previously unknown barcodes.
         # Prices still come from the retailer transparency files. Cheapersal is
@@ -2851,11 +3121,13 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "shufersal_bootstrap": data.get("shufersal_bootstrap"),
                         "be_bootstrap": data.get("be_bootstrap"),
                         "super_pharm_bootstrap": data.get("super_pharm_bootstrap"),
+                        "ksp_official": data.get("ksp_official"),
                         "rami_levy_location": data.get("rami_levy_location"),
                         "osher_ad_bootstrap": data.get("osher_ad_bootstrap"),
                         "targeted_branch_coverage": data.get("targeted_branch_coverage"),
                         "target_branch_plan": target_plan,
                         "metadata_enrichment": enrichment_stats,
+                        "official_catalog": official_catalog_stats,
                         "file_kind_counts": data.get("kind_counts", {}),
                         "sample_files": data.get("sample_files", [])[:12],
                         "parse_errors": data["errors"][:25],
@@ -2914,7 +3186,10 @@ def main():
     parser = argparse.ArgumentParser(description="Baby price-transparency worker")
     parser.add_argument(
         "--chains",
-        default=os.environ.get("ENABLED_CHAINS", "super_pharm,shufersal,be,rami_levy,yochananof,osher_ad"),
+        default=os.environ.get(
+            "ENABLED_CHAINS",
+            "super_pharm,ksp,shufersal,be,rami_levy,yochananof,osher_ad",
+        ),
         help="Comma-separated DB chain ids",
     )
     raw_limit = os.environ.get("WORKER_FILE_LIMIT", "").strip()

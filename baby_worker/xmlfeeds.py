@@ -3,6 +3,7 @@ import gzip
 import io
 import re
 import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -42,16 +43,7 @@ def parse_root(content: bytes) -> ET.Element:
     return ET.fromstring(data)
 
 def child_map(el: ET.Element) -> dict[str, str]:
-    """Direct product/header fields, including XML attributes.
-
-    Some transparency publishers serialize simple fields as attributes instead
-    of child elements. Existing element-based feeds continue to behave exactly
-    as before.
-    """
     out: dict[str, str] = {}
-    for k, v in el.attrib.items():
-        if v not in (None, ""):
-            out[local(k)] = str(v).strip()
     for c in list(el):
         if len(list(c)) == 0:
             out[local(c.tag)] = (c.text or "").strip()
@@ -73,169 +65,9 @@ def first(d: dict[str, str], keys: Iterable[str]) -> str | None:
 def root_first(root: ET.Element, keys: Iterable[str]) -> str | None:
     wanted = {k.lower() for k in keys}
     for el in root.iter():
-        for ak, av in el.attrib.items():
-            if local(ak).lower() in wanted and str(av).strip():
-                return str(av).strip()
-        if local(el.tag).lower() in wanted:
-            value = "".join(el.itertext()).strip()
-            if value:
-                return value
+        if local(el.tag).lower() in wanted and el.text and el.text.strip():
+            return el.text.strip()
     return None
-
-RECOGNIZED_PRODUCT_KEYS = tuple(dict.fromkeys(
-    CODE_KEYS + NAME_KEYS + DESCRIPTION_KEYS + PRICE_KEYS + MANUFACTURER_KEYS +
-    QTY_KEYS + UNIT_QTY_KEYS + STORE_KEYS + SUBCHAIN_KEYS + UPDATED_KEYS +
-    ("Quantity", "UnitQty", "UnitQuantity", "UnitOfMeasure",
-     "UnitOfMeasurePrice", "ManufactureName", "ManufacturerName")
-))
-
-
-def _recognized_key(name: str) -> str | None:
-    low = name.lower()
-    for key in RECOGNIZED_PRODUCT_KEYS:
-        if key.lower() == low:
-            return key
-    return None
-
-
-def minimal_product_maps(root: ET.Element) -> list[dict[str, str]]:
-    """Find the smallest XML subtrees containing code + name + price.
-
-    This is a fallback for publishers that wrap fields in extra XML levels or
-    store fields as attributes. The smallest qualifying subtree is selected so
-    the document root cannot accidentally become one giant product row.
-    """
-    candidates: list[dict[str, str]] = []
-
-    def visit(el: ET.Element) -> tuple[dict[str, str], bool]:
-        merged: dict[str, str] = {}
-
-        for ak, av in el.attrib.items():
-            key = _recognized_key(local(ak))
-            value = str(av).strip()
-            if key and value and key not in merged:
-                merged[key] = value
-
-        own_key = _recognized_key(local(el.tag))
-        if own_key:
-            value = "".join(el.itertext()).strip()
-            if value:
-                merged.setdefault(own_key, value)
-
-        descendant_has_candidate = False
-        for child in list(el):
-            child_map_, child_has_candidate = visit(child)
-            if child_has_candidate:
-                descendant_has_candidate = True
-            for k, v in child_map_.items():
-                if v and k not in merged:
-                    merged[k] = v
-
-        qualifies = bool(
-            first(merged, CODE_KEYS)
-            and first(merged, NAME_KEYS)
-            and safe_float(first(merged, PRICE_KEYS)) is not None
-        )
-
-        is_minimal_candidate = qualifies and not descendant_has_candidate
-        if is_minimal_candidate:
-            candidates.append(dict(merged))
-
-        return merged, descendant_has_candidate or is_minimal_candidate
-
-    visit(root)
-    return candidates
-
-
-def price_file_diagnostics(content: bytes, file_name: str) -> dict[str, Any]:
-    """Compact diagnostics that do not depend on baby-product classification."""
-    root = parse_root(content)
-    tag_counts: dict[str, int] = {}
-    for el in root.iter():
-        t = local(el.tag)
-        tag_counts[t] = tag_counts.get(t, 0) + 1
-
-    direct_product_shapes = 0
-    sample_names: list[str] = []
-    for el in root.iter():
-        d = child_map(el)
-        code = first(d, CODE_KEYS)
-        name = first(d, NAME_KEYS)
-        price = safe_float(first(d, PRICE_KEYS))
-        if code and name and price is not None:
-            direct_product_shapes += 1
-            if len(sample_names) < 5:
-                sample_names.append(str(name)[:120])
-
-    fallback_maps = minimal_product_maps(root) if direct_product_shapes == 0 else []
-    if not sample_names:
-        for d in fallback_maps[:5]:
-            name = first(d, NAME_KEYS)
-            if name:
-                sample_names.append(str(name)[:120])
-
-    common_tags = sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:18]
-    return {
-        "file_name": file_name,
-        "content_bytes": len(clean_bytes(content)),
-        "root_tag": local(root.tag),
-        "total_elements": sum(tag_counts.values()),
-        "direct_product_shapes": direct_product_shapes,
-        "fallback_product_shapes": len(fallback_maps),
-        "sample_names": sample_names,
-        "common_tags": [{"tag": k, "count": v} for k, v in common_tags],
-    }
-
-
-def _parse_product_map(
-    d: dict[str, str],
-    source_name: str,
-    file_name: str,
-    branch_code: str,
-    subchain: str | None,
-    updated: str | None,
-) -> dict[str, Any] | None:
-    barcode = first(d, CODE_KEYS)
-    name = first(d, NAME_KEYS)
-    price = safe_float(first(d, PRICE_KEYS))
-    if not barcode or not name or price is None or price <= 0:
-        return None
-
-    need_key = classify_need(name)
-    if not need_key:
-        return None
-
-    manufacturer = first(d, MANUFACTURER_KEYS)
-    qty_in_package = meaningful(first(d, QTY_KEYS))
-    unit_qty = meaningful(first(d, ("UnitQty", "UnitQuantity")))
-    meta_text = metadata_blob(d, name, manufacturer)
-    dimension_type, dimension_value = parse_dimension(meta_text, need_key)
-    package_quantity, package_unit = extract_package_quantity(
-        d, need_key, name, manufacturer
-    )
-    return {
-        "source_name": source_name,
-        "subchain_id": subchain,
-        "branch_code": str(branch_code),
-        "barcode": str(barcode).strip(),
-        "need_key": need_key,
-        "dimension_type": dimension_type,
-        "dimension_value": dimension_value,
-        "brand": infer_brand(meta_text, manufacturer),
-        "product_name": name,
-        "package_quantity": package_quantity,
-        "package_unit": package_unit,
-        "regular_price": price,
-        "source_updated_at": updated,
-        "raw_source": {
-            "file_name": file_name,
-            "manufacturer": manufacturer,
-            "qty_in_package": qty_in_package,
-            "unit_qty": unit_qty,
-            "metadata_candidates": metadata_candidates(d),
-        },
-    }
-
 
 def metadata_candidates(d: dict[str, str]) -> dict[str, str]:
     """Keep useful product metadata without storing the entire retailer row."""
@@ -277,21 +109,9 @@ UNKNOWN_VALUES = {"לא ידוע", "unknown", "n/a", "na", "none", "null", "-"}
 def meaningful(v: str | None) -> str | None:
     if v is None:
         return None
-
     s = str(v).strip()
     if not s or s.lower() in UNKNOWN_VALUES:
         return None
-
-    # Some Israeli transparency feeds use 0 / 0.00 in QtyInPackage as a
-    # placeholder for "unknown". Treat numeric zero as missing so the parser
-    # can fall back to the real Quantity field.
-    normalized = s.replace(",", "").strip()
-    try:
-        if float(normalized) == 0:
-            return None
-    except ValueError:
-        pass
-
     return s
 
 
@@ -331,37 +151,20 @@ def extract_package_quantity(
     unit_qty = meaningful(first(d, ("UnitQty", "UnitQuantity")))
     unit_measure = meaningful(first(d, ("UnitOfMeasure",)))
 
-    # Formula is special: in several transparency feeds QtyInPackage means
-    # "number of packages" (often 1), while Quantity is the actual can weight.
-    # Example from Shufersal:
-    #   Quantity=700, QtyInPackage=1, UnitQty=גרם, UnitOfMeasure=100 גרם
-    # The correct package quantity is 700g, not 1g.
-    if need_key == "formula":
-        unit_text = f"{unit_qty or ''} {unit_measure or ''}"
-        grams_signal = bool(re.search(r"גרם|gr\b|grams?\b|\bg\b", unit_text, re.I))
-
-        if raw_quantity is not None and raw_quantity > 1 and grams_signal:
-            return raw_quantity, "גרם"
-
-        # If Quantity is unavailable, an explicit package field can still be
-        # useful, but only after the real weight candidate above was checked.
-        if explicit_pack:
-            qty, unit = parse_package_quantity(
-                desc_text, need_key, explicit_pack, unit_qty
-            )
-            if qty is not None and qty > 1:
-                return qty, unit
-
-        # Do NOT feed UnitOfMeasure='100 גרם' into this fallback, because that
-        # is a comparison unit, not the package weight. The product name /
-        # description may still contain the real package weight.
-        return parse_package_quantity(desc_text, need_key, None, unit_qty)
-
-    # For non-formula categories keep the existing explicit-package behavior.
+    # First honor explicit package fields when they contain a meaningful number.
     if explicit_pack:
         qty, unit = parse_package_quantity(desc_text, need_key, explicit_pack, unit_qty)
         if qty is not None:
             return qty, unit
+
+    if need_key == "formula":
+        unit_text = f"{unit_qty or ''} {unit_measure or ''}"
+        grams_signal = bool(re.search(r"גרם|gr\b|grams?\b|\bg\b", unit_text, re.I))
+        if raw_quantity is not None and raw_quantity > 1 and grams_signal:
+            return raw_quantity, "גרם"
+        # Do NOT feed UnitOfMeasure='100 גרם' into this fallback, because that
+        # is a comparison unit, not the package weight.
+        return parse_package_quantity(desc_text, need_key, None, unit_qty)
 
     if need_key == "diapers":
         units_signal = bool(re.search(r"יחיד|units?|pcs?", f"{unit_qty or ''} {unit_measure or ''}", re.I))
@@ -393,6 +196,15 @@ def safe_float(v: Any) -> float | None:
         return float(str(v).replace(",", ".").strip())
     except ValueError:
         return None
+
+
+def safe_bool(v: Any) -> bool:
+    if isinstance(v, bool):
+        return v
+    text = str(v or "").strip().lower()
+    if text in {"", "0", "false", "no", "n", "לא"}:
+        return False
+    return text in {"1", "true", "yes", "y", "כן"} or bool(text)
 
 def branch_from_filename(file_name: str) -> tuple[str | None, str | None]:
     """Return (subchain, branch) using common IL transparency filename formats."""
@@ -438,62 +250,21 @@ def file_kind(file_name: str) -> str:
         return "price"
     return "unknown"
 
-STORE_NAME_KEYS = (
-    "StoreName", "BranchName", "StoreDescription", "BranchDescription",
-    "Description", "Name"
-)
-CITY_STORE_KEYS = (
-    "City", "CityName", "CityCode", "SettlementCode", "SettlementId",
-    "Town", "TownName"
-)
-ADDRESS_STORE_KEYS = (
-    "Address", "StoreAddress", "BranchAddress", "StreetAddress",
-    "AddressDescription"
-)
-
-
-def _store_map_from_subtree(el: ET.Element) -> dict[str, str]:
-    """Collect simple fields from a small store subtree, including attributes.
-
-    Stores files vary more than price files between retailers: some keep
-    StoreId / StoreName / City directly on one node, while others wrap those
-    fields one level deeper. We merge only leaf fields from the subtree.
-    """
-    out: dict[str, str] = {}
-
-    for node in el.iter():
-        for ak, av in node.attrib.items():
-            value = str(av).strip()
-            if value:
-                out.setdefault(local(ak), value)
-
-        if len(list(node)) == 0:
-            value = (node.text or "").strip()
-            if value:
-                out.setdefault(local(node.tag), value)
-
-    return out
-
-
 def parse_stores(content: bytes, source_name: str, file_name: str) -> list[dict[str, Any]]:
     root = parse_root(content)
     rows: list[dict[str, Any]] = []
     fallback_subchain, _ = branch_from_filename(file_name)
-
-    # Fast path: direct fields / attributes on the same node.
     for el in root.iter():
         d = child_map(el)
         store = first(d, STORE_KEYS)
         if not store:
             continue
-
-        branch_name = first(d, STORE_NAME_KEYS)
-        city = first(d, CITY_STORE_KEYS)
-        address = first(d, ADDRESS_STORE_KEYS)
-
+        # Avoid treating root/header nodes as a store unless they have some store details.
+        branch_name = first(d, ("StoreName", "BranchName", "Name"))
+        city = first(d, ("City", "CityName"))
+        address = first(d, ("Address", "StoreAddress"))
         if not any([branch_name, city, address]):
             continue
-
         subchain = first(d, SUBCHAIN_KEYS) or fallback_subchain
         rows.append({
             "source_name": source_name,
@@ -503,32 +274,6 @@ def parse_stores(content: bytes, source_name: str, file_name: str) -> list[dict[
             "city": city,
             "address": address,
         })
-
-    # Fallback: find the smallest subtrees that contain a StoreId and at least
-    # one useful location/name field. This helps PublishedPrices variations.
-    if len(rows) < 5:
-        for el in root.iter():
-            d = _store_map_from_subtree(el)
-            store = first(d, STORE_KEYS)
-            if not store:
-                continue
-
-            branch_name = first(d, STORE_NAME_KEYS)
-            city = first(d, CITY_STORE_KEYS)
-            address = first(d, ADDRESS_STORE_KEYS)
-            if not any([branch_name, city, address]):
-                continue
-
-            subchain = first(d, SUBCHAIN_KEYS) or fallback_subchain
-            rows.append({
-                "source_name": source_name,
-                "branch_code": str(store),
-                "subchain_id": str(subchain) if subchain else None,
-                "branch_name": branch_name,
-                "city": city,
-                "address": address,
-            })
-
     return dedupe(rows, ("source_name", "branch_code"))
 
 def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[dict[str, Any]]:
@@ -541,41 +286,52 @@ def parse_price_rows(content: bytes, source_name: str, file_name: str) -> list[d
     updated = root_first(root, UPDATED_KEYS) or timestamp_from_filename(file_name)
 
     rows: list[dict[str, Any]] = []
-    direct_product_shapes = 0
-
-    # Fast path used by Rami Levy and standard transparency XML.
     for el in root.iter():
         d = child_map(el)
         barcode = first(d, CODE_KEYS)
         name = first(d, NAME_KEYS)
         price = safe_float(first(d, PRICE_KEYS))
-        if barcode and name and price is not None:
-            direct_product_shapes += 1
+        if not barcode or not name or price is None or price <= 0:
+            continue
 
-        parsed = _parse_product_map(
-            d, source_name, file_name, str(branch_code), subchain, updated
+        need_key = classify_need(name)
+        if not need_key:
+            continue
+
+        manufacturer = first(d, MANUFACTURER_KEYS)
+        qty_in_package = meaningful(first(d, QTY_KEYS))
+        unit_qty = meaningful(first(d, ("UnitQty", "UnitQuantity")))
+        meta_text = metadata_blob(d, name, manufacturer)
+        dimension_type, dimension_value = parse_dimension(meta_text, need_key)
+        package_quantity, package_unit = extract_package_quantity(
+            d, need_key, name, manufacturer
         )
-        if parsed:
-            rows.append(parsed)
-
-    # Only when the document has no standard product-shaped nodes do we invoke
-    # the nested/attribute fallback. This leaves proven Rami parsing untouched.
-    if direct_product_shapes == 0:
-        for d in minimal_product_maps(root):
-            parsed = _parse_product_map(
-                d, source_name, file_name, str(branch_code), subchain, updated
-            )
-            if parsed:
-                rows.append(parsed)
-
+        rows.append({
+            "source_name": source_name,
+            "subchain_id": subchain,
+            "branch_code": str(branch_code),
+            "barcode": str(barcode).strip(),
+            "need_key": need_key,
+            "dimension_type": dimension_type,
+            "dimension_value": dimension_value,
+            "brand": infer_brand(meta_text, manufacturer),
+            "product_name": name,
+            "package_quantity": package_quantity,
+            "package_unit": package_unit,
+            "regular_price": price,
+            "source_updated_at": updated,
+            "raw_source": {
+                "file_name": file_name,
+                "manufacturer": manufacturer,
+                "qty_in_package": qty_in_package,
+                "unit_qty": unit_qty,
+                "metadata_candidates": metadata_candidates(d),
+            },
+        })
     return dedupe(rows, ("source_name", "branch_code", "barcode"))
 
 def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[dict[str, Any]]:
-    """Best-effort promo parser.
-
-    v0.1 only uses an explicit promo price safely when quantity <= 1.
-    Multi-buy promotions remain descriptive so we do not claim a false per-pack price.
-    """
+    """Parse current single-pack and multi-buy promotion terms conservatively."""
     root = parse_root(content)
     root_store = root_first(root, STORE_KEYS)
     root_subchain = root_first(root, SUBCHAIN_KEYS)
@@ -584,7 +340,12 @@ def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[d
     subchain = root_subchain or fn_subchain
 
     promo_rows: list[dict[str, Any]] = []
-    promo_price_keys = ("PromotionPrice", "PromoPrice", "DiscountedPrice")
+    promo_price_keys = (
+        "PromotionPrice", "PromoPrice", "DiscountedPrice", "DiscountPrice"
+    )
+    total_price_keys = (
+        "PromotionTotalPrice", "PromoTotalPrice", "TotalPrice", "PromotionAmount"
+    )
     min_qty_keys = ("MinQty", "MinimumQuantity", "MinQuantity")
     desc_keys = ("PromotionDescription", "Description", "PromoDescription")
     start_keys = ("PromotionStartDate", "StartDate")
@@ -595,8 +356,9 @@ def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[d
         d = child_map(el)
         desc = first(d, desc_keys)
         explicit = safe_float(first(d, promo_price_keys))
+        total_price = safe_float(first(d, total_price_keys))
         min_qty = safe_float(first(d, min_qty_keys)) or 1.0
-        if not desc and explicit is None:
+        if not desc and explicit is None and total_price is None:
             continue
 
         # Item codes may be descendants under PromotionItems.
@@ -608,8 +370,18 @@ def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[d
         if not codes:
             continue
 
-        promo_price = explicit if explicit is not None and min_qty <= 1 else None
-        requires_club = bool(first(d, club_keys))
+        # Total-price promotions become a comparable per-package price while
+        # preserving the purchase threshold. An ambiguous PromotionPrice with
+        # min_qty > 1 remains descriptive only; some publishers use that field
+        # for a basket total and others for an already-normalized unit price.
+        promo_price = None
+        if total_price is not None and min_qty >= 1:
+            promo_price = total_price / min_qty
+        elif explicit is not None and min_qty <= 1:
+            promo_price = explicit
+            total_price = explicit
+
+        requires_club = safe_bool(first(d, club_keys))
         for code in codes:
             promo_rows.append({
                 "source_name": source_name,
@@ -620,10 +392,49 @@ def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[d
                 "promo_description": desc,
                 "promo_start_at": first(d, start_keys),
                 "promo_end_at": first(d, end_keys),
+                "promo_min_quantity": min_qty,
+                "promo_total_price": total_price,
                 "requires_club": requires_club,
-                "raw_promo": {"min_qty": min_qty, "explicit_price": explicit, "file_name": file_name},
+                "raw_promo": {
+                    "min_qty": min_qty,
+                    "explicit_price": explicit,
+                    "total_price": total_price,
+                    "file_name": file_name,
+                },
             })
     return dedupe(promo_rows, ("source_name", "branch_code", "barcode"))
+
+
+def price_file_diagnostics(content: bytes, file_name: str) -> dict[str, Any]:
+    """Return a compact schema diagnostic when a retailer file parses to zero rows."""
+    try:
+        root = parse_root(content)
+    except Exception as exc:
+        return {
+            "file_name": file_name,
+            "parse_error": f"{type(exc).__name__}: {exc}",
+        }
+
+    tags = Counter(local(el.tag) for el in root.iter())
+    samples: list[dict[str, Any]] = []
+    for el in root.iter():
+        mapped = child_map(el)
+        if not mapped:
+            continue
+        if any(key.lower() in {k.lower() for k in CODE_KEYS + NAME_KEYS + PRICE_KEYS} for key in mapped):
+            samples.append({"tag": local(el.tag), "keys": sorted(mapped)[:24]})
+        if len(samples) >= 3:
+            break
+
+    return {
+        "file_name": file_name,
+        "root_tag": local(root.tag),
+        "common_tags": [
+            {"tag": tag, "count": count}
+            for tag, count in tags.most_common(18)
+        ],
+        "item_samples": samples,
+    }
 
 def dedupe(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[dict[str, Any]]:
     m: dict[tuple[Any, ...], dict[str, Any]] = {}
