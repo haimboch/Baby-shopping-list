@@ -20,6 +20,10 @@ from tests.test_core import (
     test_strict_source_outcome_is_not_false_success,
     test_cheapersal_price_fallback_normalizes_matching_chain,
 )
+from tests.test_mvp_v046_contract import (
+    test_v046_frontend_enforces_trustworthy_basket_rules,
+    test_v046_sql_view_has_explicit_api_grant_and_invoker_security,
+)
 
 for fn in (
     test_classifier, test_expanded_baby_product_classifier,
@@ -42,6 +46,8 @@ for fn in (
     test_superpharm_category_product_url_extraction,
     test_strict_source_outcome_is_not_false_success,
     test_cheapersal_price_fallback_normalizes_matching_chain,
+    test_v046_frontend_enforces_trustworthy_basket_rules,
+    test_v046_sql_view_has_explicit_api_grant_and_invoker_security,
 ):
     fn()
     print(f"✅ {fn.__name__}")

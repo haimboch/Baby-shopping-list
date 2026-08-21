@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v045-verified-baby-product-images";
+const CACHE="baby-smart-v046-mvp-readiness-and-data-quality";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{

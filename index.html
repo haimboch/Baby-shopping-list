@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.45</title>
+<title>Baby Smart List · Dashboard v0.46</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -170,8 +170,9 @@ body{color:var(--ink)}
 .family-summary{display:flex;align-items:center;gap:10px;background:#f8f8fc;border:1px solid var(--line);border-radius:14px;padding:11px;margin:12px 0}.family-summary .family-stack{font-size:1.3rem}.family-summary b{display:block}.family-summary small{color:var(--soft-ink)}.family-members{display:grid;gap:8px;margin:12px 0}.family-member{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:10px}.member-avatar{width:38px;height:38px;border-radius:13px;background:var(--lilac);display:grid;place-items:center;font-weight:900;color:var(--violet)}.family-member b{display:block;font-size:.82rem;overflow:hidden;text-overflow:ellipsis}.family-member small{display:block;color:var(--soft-ink);font-size:.68rem;margin-top:2px}.role-tag{background:#eef8f4;color:#087b58;border-radius:999px;padding:4px 7px;font-size:.61rem;font-weight:900}
 .barcode-photo-box{display:block;border:1px dashed #bbb5f5;background:#f8f7ff;border-radius:18px;padding:22px 14px;text-align:center;cursor:pointer}.barcode-photo-box .camera{font-size:2rem}.barcode-photo-box b{display:block;margin-top:7px}.barcode-photo-box small{display:block;color:var(--soft-ink);font-size:.73rem;margin-top:4px}.scan-preview{max-width:100%;max-height:180px;border-radius:14px;margin-top:10px}.scan-state{border-radius:13px;padding:10px;margin-top:10px;background:#f5f6fa;color:#5e6576;font-size:.78rem;line-height:1.5}.scan-state.success{background:#eaf8f2;color:#087b58}.scan-state.error{background:#fff0f2;color:#ad3348}
 .legacy-workspace{margin-top:12px}.legacy-back{margin-bottom:10px}.app-footnote{margin-bottom:20px}.fab.dashboard-hidden{display:none}
+.readiness-section{padding:13px;border:1px solid #e2defd;border-radius:20px;background:linear-gradient(135deg,#fcfbff,#f3f7ff);box-shadow:0 8px 22px rgba(74,65,150,.06)}.readiness-section .dashboard-section-head{margin:0 2px 10px}.readiness-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.readiness-card{width:100%;border:1px solid #dde2ef;border-radius:14px;background:#fff;padding:10px;text-align:right;display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start}.readiness-card .readiness-icon{width:30px;height:30px;border-radius:10px;background:#f1efff;display:grid;place-items:center;font-size:.95rem}.readiness-card b{display:block;font-size:.76rem}.readiness-card small{display:block;margin-top:2px;color:var(--soft-ink);font-size:.66rem;line-height:1.38}.readiness-card.good{border-color:#cde9dd}.readiness-card.good .readiness-icon{background:#e8f8f1}.readiness-card.warn{border-color:#f0deb2}.readiness-card.warn .readiness-icon{background:#fff8e8}.readiness-card.bad{border-color:#f3c6cd}.readiness-card.bad .readiness-icon{background:#fff0f2}.readiness-note{grid-column:1/-1;margin:2px 1px 0;color:#677085;font-size:.68rem;line-height:1.45}.data-health-list{display:grid;gap:8px;margin:12px 0}.data-health-row{border:1px solid var(--line);border-radius:13px;padding:10px;display:grid;gap:4px}.data-health-row .topline{display:flex;justify-content:space-between;gap:10px;align-items:center}.health-tag{border-radius:999px;padding:4px 7px;background:#edf8f3;color:#087b58;font-size:.65rem;font-weight:900}.health-tag.warn{background:#fff7e5;color:#8b5d10}.health-tag.bad{background:#fff0f2;color:#b2374c}.health-metric{font-size:.72rem;color:var(--soft-ink)}
 @media(min-width:620px){.category-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.subcategory-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.catalog-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:420px){.dashboard-shell{padding-inline:8px}.dashboard-top{gap:6px;padding:6px}.header-actions{gap:5px}.header-action{width:52px}.header-action small{font-size:.56rem}.location-control{padding-inline:8px;gap:7px}.location-control .control-icon{width:31px;height:31px}.category-card{min-height:124px;padding:12px}.dashboard-welcome h1{font-size:1.38rem}}
+@media(max-width:420px){.dashboard-shell{padding-inline:8px}.dashboard-top{gap:6px;padding:6px}.header-actions{gap:5px}.header-action{width:52px}.header-action small{font-size:.56rem}.location-control{padding-inline:8px;gap:7px}.location-control .control-icon{width:31px;height:31px}.category-card{min-height:124px;padding:12px}.dashboard-welcome h1{font-size:1.38rem}.readiness-grid{grid-template-columns:1fr}}
 
 </style>
 </head>
@@ -270,6 +271,11 @@ body{color:var(--ink)}
       <p>כל המוצרים והמחירים למשפחה, במקום אחד.</p>
     </div>
 
+    <section class="dashboard-section readiness-section" aria-label="בדיקת מוכנות">
+      <div class="dashboard-section-head"><div><h2>✅ בדיקת מוכנות</h2><p>מוודאים שהמלאי, הסל והמחירים מוכנים לשימוש</p></div></div>
+      <div class="readiness-grid" id="mvpReadiness"></div>
+    </section>
+
     <section class="dashboard-section">
       <div class="dashboard-section-head"><div><h2>📦 ניהול מלאי</h2><p>המוצרים שלכם בבית והמצב העדכני שלהם</p></div><span class="count-pill" id="dashboardTracked">0 במעקב</span></div>
       <button class="btn primary" id="createShoppingBasket" style="width:100%;min-height:47px;margin-bottom:12px">🛒 יצירת רשימת קניות והשוואת סל מלא</button>
@@ -356,7 +362,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.45</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.46</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -534,6 +540,12 @@ body{color:var(--ink)}
 </section>
 </div></dialog>
 
+<dialog id="dqd"><div class="dlg">
+<div class="dh"><div><h3 style="margin:0">🛡️ איכות נתוני המחירים</h3><div class="sub">שקיפות לפני החלטת קנייה</div></div><button class="btn" id="dqclose">✕</button></div>
+<div id="dataHealthSummary" class="data-health-list"><div class="loading">טוען מדדי איכות…</div></div>
+<div class="note">רק מחירים טריים (עד 36 שעות) משתתפים בחישוב סל מלא ובהמלצת המחיר הזול. תמונות מוצגות רק אחרי התאמה לברקוד.</div>
+</div></dialog>
+
 <dialog id="cdlg"><div class="dlg">
 <div class="dh"><div><h3 id="ctitle" style="margin:0">🔎 השוואת מחירים</h3><div id="csub" class="sub"></div></div><button class="btn" id="cclose">✕</button></div>
 <div id="clocation" class="loc-summary"></div>
@@ -570,7 +582,7 @@ const NEEDS={
   diaper_cream:{name:"משחת החתלה",category:"החתלה",dimension_type:"none",comparison_mode:"100g",label:null,values:[],alternatives:true},
   changing_pads:{name:"משטחי החתלה",category:"החתלה",dimension_type:"none",comparison_mode:"unit",label:null,values:[],alternatives:true},
   diaper_bags:{name:"שקיות לחיתולים",category:"החתלה",dimension_type:"none",comparison_mode:"unit",label:null,values:[],alternatives:true},
-  formula:{name:"תמ״ל",category:"האכלה",dimension_type:"stage",comparison_mode:"100g",label:"שלב",values:["1","2","3"],alternatives:true},
+  formula:{name:"תמ״ל",category:"האכלה",dimension_type:"stage",comparison_mode:"100g",label:"שלב",values:["1","2","3"],alternatives:false},
   baby_wash:{name:"סבון רחצה",category:"רחצה וטיפוח",dimension_type:"none",comparison_mode:"100ml",label:null,values:[],alternatives:true},
   bath_oil:{name:"שמן אמבטיה",category:"רחצה וטיפוח",dimension_type:"none",comparison_mode:"100ml",label:null,values:[],alternatives:true},
   body_cream:{name:"קרם גוף",category:"רחצה וטיפוח",dimension_type:"none",comparison_mode:"100g",label:null,values:[],alternatives:true},
@@ -637,7 +649,7 @@ function rowMatchesArea(r,profile){
   if(profile.codes?.includes(c))return true;
   return false;
 }
-let session=null,household=null,member=null,items=[],alts=[],consumption=[],catalog=[],householdUsers=[],notifications=[],notificationPrefs=null,filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null,onboardStep=1,onboardLocation=null,activeCategory=null,activeSubcategory=null,highlightBarcode=null;
+let session=null,household=null,member=null,items=[],alts=[],consumption=[],catalog=[],householdUsers=[],notifications=[],notificationPrefs=null,dataHealth=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null,onboardStep=1,onboardLocation=null,activeCategory=null,activeSubcategory=null,highlightBarcode=null;
 let shoppingBaskets=[],activeShoppingBasket=null;
 const purchasedShoppingItems=new Map(),pendingShoppingPurchases=new Set();
 let zxingLoadPromise=null;
@@ -684,11 +696,65 @@ function appPage(id){
   $("add").classList.toggle("dashboard-hidden",id!=="inventoryWorkspace");
   window.scrollTo({top:0,behavior:"smooth"})
 }
+function healthAgeLabel(value){
+  if(!value)return "ללא חותמת עדכון";
+  const hours=Math.max(0,(Date.now()-new Date(value).getTime())/36e5);
+  if(!Number.isFinite(hours))return "ללא חותמת עדכון";
+  if(hours<1)return "עודכן לפני פחות משעה";
+  if(hours<24)return `עודכן לפני ${Math.floor(hours)} שעות`;
+  return `עודכן לפני ${Math.floor(hours/24)} ימים`;
+}
+function readinessCard(tone,icon,title,copy,action,productId=""){
+  return `<button class="readiness-card ${tone}" data-readiness-action="${esc(action)}"${productId?` data-readiness-product="${esc(productId)}"`:""}><span class="readiness-icon">${icon}</span><span><b>${esc(title)}</b><small>${esc(copy)}</small></span></button>`
+}
+function renderMvpReadiness(){
+  const target=$("mvpReadiness");if(!target||!household)return;
+  const configured=items.filter(p=>SUPPORTED_NEEDS.has(p.need_key));
+  const missingLocation=!hasCoords(household);
+  const missingSetup=configured.filter(p=>{
+    const cfg=NEEDS[p.need_key]||NEEDS.other;
+    return (cfg.dimension_type!=="none"&&!p.dimension_value)||!p.preferred_barcode;
+  });
+  const missingQuantity=configured.filter(p=>p.quantity==null);
+  const freshChains=dataHealth.filter(row=>Number(row.fresh_price_rows||0)>0).length;
+  const healthReady=dataHealth.length>0&&freshChains>0;
+  const cards=[
+    readinessCard(missingLocation?"bad":"good",missingLocation?"📍":"✅","מיקום וסניפים",missingLocation?"צריך לשמור GPS או מרכז עיר כדי לחשב סלים קרובים.":`${household.city||"אזור"} · ${household.search_radius_km||10} ק״מ`,"location"),
+    readinessCard(!configured.length?"bad":missingSetup.length?"warn":"good",!configured.length?"📦":missingSetup.length?"⚙️":"✅","מוצרים והעדפות",!configured.length?"הוסיפו מוצר אחד לפחות למלאי.":missingSetup.length?`${missingSetup.length} מוצרים דורשים יצרן או שלב/מידה.`:"לכל מוצר במעקב יש העדפות להשוואה.","preferences",missingSetup[0]?.id||""),
+    readinessCard(!configured.length?"warn":missingQuantity.length?"warn":"good",missingQuantity.length?"📊":"✅","כמות וסטטוס",!configured.length?"הכמות תוגדר אחרי הוספת המוצר.":missingQuantity.length?`${missingQuantity.length} מוצרים ללא כמות התחלתית.`:"הכמויות מאפשרות ללמוד את קצב הצריכה.","inventory"),
+    readinessCard(healthReady?"good":dataHealth.length?"warn":"warn",healthReady?"🛡️":"🕒","מחירים ותמונות",healthReady?`${freshChains} רשתות עם מחירים טריים.`:dataHealth.length?"אין כרגע מספיק מחירים טריים לסל מלא.":"הריצו את עדכון ה־SQL של v0.46 ואז רעננו.","data")
+  ];
+  target.innerHTML=cards.join("")+`<div class="readiness-note">🍼 תמ״ל אינו מוחלף אוטומטית. חלופות זולות מוצעות רק למוצרים שבהם האפשרות מאושרת בהגדרות.</div>`;
+}
+function healthTag(row){
+  const fresh=Number(row.fresh_price_rows||0),stamp=row.latest_price_at;
+  if(fresh>0)return {css:"",label:"תקין"};
+  if(stamp)return {css:"warn",label:"דורש עדכון"};
+  return {css:"bad",label:"ללא נתונים"};
+}
+function renderDataHealth(){
+  const target=$("dataHealthSummary");if(!target)return;
+  if(!dataHealth.length){target.innerHTML='<div class="empty">עדיין אין דוח איכות זמין. הריצו פעם אחת את קובץ ה־SQL של v0.46 ב־Supabase, ואז רעננו את האפליקציה.</div>';return}
+  const global=dataHealth[0]||{};
+  const imageCoverage=Number(global.catalog_image_coverage||0);
+  const imageText=`תמונות מאומתות: ${Number(global.catalog_products_with_image||0)} מתוך ${Number(global.active_catalog_products||0)} (${imageCoverage.toFixed(1)}%)`;
+  target.innerHTML=`<div class="data-health-row"><div class="topline"><b>🖼️ קטלוג המוצרים</b><span class="health-tag ${imageCoverage>=70?"":imageCoverage>0?"warn":"bad"}">${imageCoverage>=70?"כיסוי טוב":imageCoverage>0?"בהשלמה":"ממתין לתמונות"}</span></div><span class="health-metric">${esc(imageText)} · נבדקו ${Number(global.catalog_products_checked||0)} מוצרים.</span></div>`+
+    dataHealth.map(row=>{const tag=healthTag(row),label=CHAIN_LABELS[row.chain_id]||row.chain_id||"רשת";return `<div class="data-health-row"><div class="topline"><b>${esc(label)}</b><span class="health-tag ${tag.css}">${tag.label}</span></div><span class="health-metric">${Number(row.fresh_price_rows||0).toLocaleString("he-IL")} מחירים טריים · ${Number(row.known_baby_barcodes||0).toLocaleString("he-IL")} ברקודים · ${esc(healthAgeLabel(row.latest_price_at))}</span></div>`}).join("");
+}
+async function loadDataHealth(){
+  const {data,error}=await sb.from("baby_mvp_data_health_v046")
+    .select("chain_id,latest_price_at,fresh_price_rows,known_baby_barcodes,active_catalog_products,catalog_products_with_image,catalog_products_checked,catalog_image_coverage")
+    .order("chain_id");
+  if(error){console.warn("data health",error.message);dataHealth=[];renderMvpReadiness();renderDataHealth();return}
+  dataHealth=data||[];renderMvpReadiness();renderDataHealth();
+}
+function openDataHealth(){renderDataHealth();$("dqd").showModal()}
 function renderDashboard(){
   if(!household)return;
   const hour=new Date().getHours();
   const greeting=hour<12?"בוקר טוב":hour<17?"צהריים טובים":hour<21?"ערב טוב":"לילה טוב";
   $("dashboardGreeting").textContent=`${greeting} 👋`;
+  renderMvpReadiness();
   const priority={urgent:0,out:0,low:1,ok:2};
   const unique=new Map();
   [...items].sort((a,b)=>(priority[a.stock_status]??2)-(priority[b.stock_status]??2)).forEach(p=>{const key=p.need_key&&p.need_key!=="other"?p.need_key:`other:${p.name}`;if(!unique.has(key))unique.set(key,p)});
@@ -925,7 +991,7 @@ async function loadHouse(id){
   let {data,error}=await sb.from("households").select("id,name,city,latitude,longitude,search_radius_km").eq("id",id).single();
   if(error)return alert(error.message);
   household=data;$("title").textContent=data.name;updateLocationButton();
-  await Promise.all([loadAll(),loadNotifications(),loadHouseholdUsers()]);
+  await Promise.all([loadAll(),loadNotifications(),loadHouseholdUsers(),loadDataHealth()]);
   await invite();subscribe();view("app");openDashboard();
   if(location.hash==="#notifications")setTimeout(openNotifications,180)
 }
@@ -1270,6 +1336,14 @@ function syncNeedForm(isExisting=false){
   }
   if(!isExisting){
     $("pallow").checked=cfg.alternatives;
+  }
+  if(key==="formula"){
+    $("pallow").checked=false;
+    $("pallow").disabled=true;
+    $("pallowwrap").querySelector("small")?.replaceChildren("תמ״ל אינו מוחלף אוטומטית; מוצגים מחירים בלבד.");
+  }else{
+    $("pallow").disabled=false;
+    $("pallowwrap").querySelector("small")?.replaceChildren("במידה שיש חלופה מתאימה וזולה יותר.");
   }
 }
 function openNeed(p=null){
@@ -1616,10 +1690,15 @@ async function openShoppingBasket(){
   const unique=new Map();items.filter(p=>p.stock_status!=="ok").forEach(p=>{const key=p.need_key&&p.need_key!=="other"?p.need_key:`other:${p.name}`;if(!unique.has(key))unique.set(key,p)});
   const wanted=[...unique.values()];
   $("basketLocation").textContent=`📍 ${household?.city||"האזור שלך"} · ${household?.search_radius_km||10} ק״מ`;
-  $("basketSubtitle").textContent=`${wanted.length} מוצרים חסרים או שעומדים להיגמר · מוצגים סלים מלאים בלבד`;
+  $("basketSubtitle").textContent=`${wanted.length} מוצרים חסרים או שעומדים להיגמר · סלים מלאים ומחירים טריים בלבד`;
   $("basketResults").innerHTML='<div class="loading">מחשבים את הסל המלא בכל הסופרים באזור…</div>';appPage("shoppingBasketPage");
   if(!wanted.length){$("basketResults").innerHTML='<div class="empty">אין כרגע מוצרים חסרים או כאלה שעומדים להיגמר.</div>';return}
   if(wanted.some(p=>!SUPPORTED_NEEDS.has(p.need_key))){$("basketResults").innerHTML='<div class="empty">לא ניתן לחשב סל מלא: לחלק מהמוצרים עדיין אין נתוני השוואת מחירים.</div>';return}
+  const setupMissing=wanted.filter(p=>{
+    const cfg=NEEDS[p.need_key]||NEEDS.other;
+    return !p.preferred_barcode||(cfg.dimension_type!=="none"&&!p.dimension_value);
+  });
+  if(setupMissing.length){$("basketResults").innerHTML=`<div class="empty">לפני חישוב סל מלא יש לבחור יצרן${setupMissing.some(p=>(NEEDS[p.need_key]||{}).dimension_type!=="none")?" וגם שלב/מידה":""} עבור: ${esc(setupMissing.map(p=>p.name).join(" · "))}. חזרו לניהול המלאי ועדכנו את ההעדפות.</div>`;return}
   const {data:branches,error:branchError}=await sb.from("retail_branches").select("chain_id,branch_code,branch_name,city,address,latitude,longitude").in("chain_id",ACTIVE_CHAINS).eq("active",true);
   if(branchError){$("basketResults").innerHTML=`<div class="msg err">${esc(branchError.message)}</div>`;return}
   const radius=Number(household?.search_radius_km||10);
@@ -1630,7 +1709,7 @@ async function openShoppingBasket(){
   if(error){$("basketResults").innerHTML=`<div class="msg err">${esc(error.message)}</div>`;return}
   const baskets=[];
   for(const branch of nearby){const branchRows=(prices||[]).filter(r=>r.chain_id===branch.chain_id&&String(r.branch_code)===String(branch.branch_code));const chosen=[];let complete=true;
-    for(const product of wanted){const matching=branchRows.filter(r=>r.need_key===product.need_key&&(!product.dimension_value||String(r.dimension_value||"")===String(product.dimension_value))).sort((a,b)=>Number(a.effective_price)-Number(b.effective_price));const preferredCatalog=catalog.find(c=>String(c.barcode)===String(product.preferred_barcode||""));const preferred=product.preferred_barcode?(matching.find(r=>String(r.barcode)===String(product.preferred_barcode))||matching.find(r=>preferredCatalog?.brand&&r.brand===preferredCatalog.brand)):matching[0];if(!preferred){complete=false;break}const cheaperOtherBrand=matching.find(row=>row.brand!==preferred.brand&&Number(row.effective_price)<Number(preferred.effective_price));const alternative=product.need_key==="formula"?preferred:(cheaperOtherBrand||preferred);chosen.push({product,preferred,alternative})}
+    for(const product of wanted){const matching=branchRows.filter(r=>r.need_key===product.need_key&&(!product.dimension_value||String(r.dimension_value||"")===String(product.dimension_value))&&priceFreshness(r).eligible).sort((a,b)=>Number(a.effective_price)-Number(b.effective_price));const preferred=matching.find(r=>String(r.barcode)===String(product.preferred_barcode));if(!preferred){complete=false;break}const cheaperOtherBrand=product.need_key!=="formula"&&product.allow_alternatives!==false?matching.find(row=>row.brand!==preferred.brand&&Number(row.effective_price)<Number(preferred.effective_price)):null;const alternative=cheaperOtherBrand||preferred;chosen.push({product,preferred,alternative})}
     if(complete){const preferredTotal=chosen.reduce((sum,x)=>sum+Number(x.preferred.effective_price),0),smartTotal=chosen.reduce((sum,x)=>sum+Number(x.alternative.effective_price),0);baskets.push({branch,chosen,preferredTotal,smartTotal,savings:preferredTotal-smartTotal})}
   }
   baskets.sort((a,b)=>a.preferredTotal-b.preferredTotal||a.branch.distance_km-b.branch.distance_km);
@@ -1835,6 +1914,7 @@ $("catalogProducts").onclick=e=>{
   const manual=e.target.closest("[data-add-manual]");if(manual){openNeed();if(NEEDS[activeSubcategory]){$("pneedkey").value=activeSubcategory;syncNeedForm(false)}else{$("pneedkey").value="other";syncNeedForm(false);$("pname").value=subcategoryDefinition(activeCategory,activeSubcategory).name}return}
 };
 document.querySelectorAll("[data-back-dashboard]").forEach(b=>b.onclick=openDashboard);
+$("mvpReadiness").onclick=e=>{const b=e.target.closest("[data-readiness-action]");if(!b)return;const action=b.dataset.readinessAction;if(action==="location")return openLocation();if(action==="data")return openDataHealth();openDashboard();setTimeout(()=>{const selector=b.dataset.readinessProduct?`[data-inventory-search="${b.dataset.readinessProduct}"]`:"#dashboardInventory";document.querySelector(selector)?.scrollInto({behavior:"smooth",block:"center"})},60)};
 $("createShoppingBasket").onclick=openShoppingBasket;
 $("basketResults").onclick=e=>{const button=e.target.closest("[data-open-basket]");if(button)return openBasketDetails(button.dataset.openBasket)};
 $("backToBaskets").onclick=()=>appPage("shoppingBasketPage");
@@ -1905,7 +1985,7 @@ $("pform").onsubmit=async e=>{
     need_detail:dim?`${cfg.label} ${dim}`:null,
     comparison_mode:cfg.comparison_mode,
     preferred_barcode:key==="other"?null:($("ppref").value.trim()||null),
-    allow_alternatives:key==="other"?false:$("pallow").checked,
+    allow_alternatives:key==="other"||key==="formula"?false:$("pallow").checked,
     notes:$("pnotes").value.trim()||null,
     updated_by:session.user.id
   };
@@ -1951,6 +2031,8 @@ $("prefPrice").onchange=e=>saveNotifPref("price_deal_enabled",e.target.checked);
 $("prefLow").onchange=e=>saveNotifPref("low_stock_enabled",e.target.checked);
 $("enablePush").onclick=enablePush;
 $("disablePush").onclick=disablePush;
+
+$("dqclose").onclick=()=>$("dqd").close();
 
 $("family").onclick=async()=>{renderFamilyUsers();$("fdlg").showModal();await loadHouseholdUsers()};$("fclose").onclick=()=>$("fdlg").close();$("copy").onclick=async()=>{await navigator.clipboard.writeText($("code").textContent);$("copy").textContent="הועתק ✓";setTimeout(()=>$("copy").textContent="העתק קוד",1200)}
 $("location").onclick=openLocation;$("lclose").onclick=()=>$("ldlg").close();$("lsave").onclick=saveLocation;
