@@ -1,6 +1,6 @@
 from baby_worker.classifier import classify_need, parse_dimension, parse_package_quantity
 from baby_worker.cheapersal_prices import CheaperSalPriceFallback
-from baby_worker.ksp import parse_ksp_api_product, parse_ksp_product_html
+from baby_worker.ksp import _get_json, parse_ksp_api_product, parse_ksp_product_html
 from baby_worker.superpharm_online import (
     extract_superpharm_product_urls,
     parse_superpharm_product_html,
@@ -167,6 +167,39 @@ def test_ksp_json_api_detail_finds_barcode_in_specification():
     assert parsed["price_row"]["barcode"] == "7290000195537"
     assert parsed["price_row"]["regular_price"] == 24.9
     assert parsed["promo_row"] is None
+
+
+def test_ksp_relay_routes_and_authenticates_request():
+    class Response:
+        ok = True
+        status_code = 200
+        url = "https://relay.example/ksp/category?search=7290000191225"
+        text = '{"result":{"items":[]}}'
+        headers = {"Content-Type": "application/json"}
+
+        def json(self):
+            return {"result": {"items": []}}
+
+    class Session:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return Response()
+
+    session = Session()
+    payload = _get_json(
+        session,
+        "category/",
+        params={"search": "7290000191225"},
+        relay_url="https://relay.example/",
+        relay_token="secret-token",
+    )
+    assert payload == {"result": {"items": []}}
+    assert session.calls[0][0] == "https://relay.example/ksp/category"
+    assert session.calls[0][1]["headers"]["Authorization"] == "Bearer secret-token"
+    assert session.calls[0][1]["params"] == {"search": "7290000191225"}
 
 
 def test_superpharm_promo_filename_and_merge():
