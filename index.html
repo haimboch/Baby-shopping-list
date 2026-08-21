@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.41</title>
+<title>Baby Smart List · Dashboard v0.42</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -270,6 +270,7 @@ body{color:var(--ink)}
 
     <section class="dashboard-section">
       <div class="dashboard-section-head"><div><h2>📦 ניהול מלאי</h2><p>המוצרים שלכם בבית והמצב העדכני שלהם</p></div><span class="count-pill" id="dashboardTracked">0 במעקב</span></div>
+      <button class="btn primary" id="createShoppingBasket" style="width:100%;min-height:47px;margin-bottom:12px">🛒 יצירת רשימת קניות והשוואת סל מלא</button>
       <div id="dashboardInventory" style="display:grid;gap:10px"></div>
     </section>
 
@@ -292,6 +293,11 @@ body{color:var(--ink)}
         <article class="future-card" aria-disabled="true"><span class="coming-soon">בקרוב</span><span class="future-icon">💰</span><b>חיסכון חודשי</b><small>כמה חסכתם בעזרת השוואת המחירים</small></article>
       </div>
     </section>
+  </section>
+
+  <section class="app-page hidden" id="shoppingBasketPage">
+    <div class="page-head"><button class="back-button" data-back-dashboard aria-label="חזרה למלאי">→</button><div class="page-head-copy"><small id="basketLocation"></small><h1>🛒 השוואת סל קניות</h1><p id="basketSubtitle">רק סופרים שבהם נמצא סל מלא</p></div></div>
+    <div id="basketResults" class="catalog-list"></div>
   </section>
 
   <section class="app-page hidden" id="productPricesPage">
@@ -342,7 +348,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.41</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.42</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -650,7 +656,7 @@ function subTrackedItems(key){
 }
 function subCatalogRows(key){return catalog.filter(p=>p.need_key===key&&p.active!==false)}
 function appPage(id){
-  ["dashboardPage","categoryPage","catalogPage","inventoryWorkspace","productPricesPage"].forEach(x=>$(x).classList.toggle("hidden",x!==id));
+  ["dashboardPage","categoryPage","catalogPage","inventoryWorkspace","productPricesPage","shoppingBasketPage"].forEach(x=>$(x).classList.toggle("hidden",x!==id));
   $("add").classList.toggle("dashboard-hidden",id!=="inventoryWorkspace");
   window.scrollTo({top:0,behavior:"smooth"})
 }
@@ -1560,6 +1566,31 @@ async function comparePrices(id){
   };
   renderComparison();
 }
+async function openShoppingBasket(){
+  const unique=new Map();items.filter(p=>p.stock_status!=="ok").forEach(p=>{const key=p.need_key&&p.need_key!=="other"?p.need_key:`other:${p.name}`;if(!unique.has(key))unique.set(key,p)});
+  const wanted=[...unique.values()];
+  $("basketLocation").textContent=`📍 ${household?.city||"האזור שלך"} · ${household?.search_radius_km||10} ק״מ`;
+  $("basketSubtitle").textContent=`${wanted.length} מוצרים חסרים או שעומדים להיגמר · מוצגים סלים מלאים בלבד`;
+  $("basketResults").innerHTML='<div class="loading">מחשבים את הסל המלא בכל הסופרים באזור…</div>';appPage("shoppingBasketPage");
+  if(!wanted.length){$("basketResults").innerHTML='<div class="empty">אין כרגע מוצרים חסרים או כאלה שעומדים להיגמר.</div>';return}
+  if(wanted.some(p=>!SUPPORTED_NEEDS.has(p.need_key))){$("basketResults").innerHTML='<div class="empty">לא ניתן לחשב סל מלא: לחלק מהמוצרים עדיין אין נתוני השוואת מחירים.</div>';return}
+  const {data:branches,error:branchError}=await sb.from("retail_branches").select("chain_id,branch_code,branch_name,city,address,latitude,longitude").in("chain_id",ACTIVE_CHAINS).eq("active",true);
+  if(branchError){$("basketResults").innerHTML=`<div class="msg err">${esc(branchError.message)}</div>`;return}
+  const radius=Number(household?.search_radius_km||10);
+  const nearby=(branches||[]).filter(b=>!isOnlineBranch(b)&&hasCoords(b)&&hasCoords(household)).map(b=>({...b,distance_km:haversineKm(household.latitude,household.longitude,b.latitude,b.longitude)})).filter(b=>b.distance_km<=radius);
+  if(!nearby.length){$("basketResults").innerHTML='<div class="empty">לא נמצאו סופרמרקטים בטווח החיפוש.</div>';return}
+  const keys=[...new Set(wanted.map(p=>p.need_key))],codes=[...new Set(nearby.map(b=>String(b.branch_code)))];
+  const {data:prices,error}=await sb.from("baby_normalized_prices").select("chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,effective_price,normalized_unit_price,normalized_unit_label,last_seen_at,promo_description").in("need_key",keys).in("chain_id",ACTIVE_CHAINS).in("branch_code",codes).not("effective_price","is",null).eq("unresolved_quantity_conflict",false).limit(3000);
+  if(error){$("basketResults").innerHTML=`<div class="msg err">${esc(error.message)}</div>`;return}
+  const baskets=[];
+  for(const branch of nearby){const branchRows=(prices||[]).filter(r=>r.chain_id===branch.chain_id&&String(r.branch_code)===String(branch.branch_code));const chosen=[];let complete=true;
+    for(const product of wanted){const matching=branchRows.filter(r=>r.need_key===product.need_key&&(!product.dimension_value||String(r.dimension_value||"")===String(product.dimension_value))).sort((a,b)=>Number(a.effective_price)-Number(b.effective_price));const preferredCatalog=catalog.find(c=>String(c.barcode)===String(product.preferred_barcode||""));const preferred=product.preferred_barcode?(matching.find(r=>String(r.barcode)===String(product.preferred_barcode))||matching.find(r=>preferredCatalog?.brand&&r.brand===preferredCatalog.brand)):matching[0];if(!preferred){complete=false;break}const alternative=product.need_key==="formula"?preferred:(matching[0]&&Number(matching[0].effective_price)<Number(preferred.effective_price)?matching[0]:preferred);chosen.push({product,preferred,alternative})}
+    if(complete){const preferredTotal=chosen.reduce((sum,x)=>sum+Number(x.preferred.effective_price),0),smartTotal=chosen.reduce((sum,x)=>sum+Number(x.alternative.effective_price),0);baskets.push({branch,chosen,preferredTotal,smartTotal,savings:preferredTotal-smartTotal})}
+  }
+  baskets.sort((a,b)=>a.preferredTotal-b.preferredTotal||a.branch.distance_km-b.branch.distance_km);
+  if(!baskets.length){$("basketResults").innerHTML='<div class="empty">לא נמצא באזור סופר שבו זמינים כל המוצרים לפי ההעדפות שנבחרו.</div>';return}
+  $("basketResults").innerHTML=baskets.map((basket,index)=>{const changes=basket.chosen.filter(x=>String(x.preferred.barcode)!==String(x.alternative.barcode));return `<article class="catalog-card"><div class="ph"><div><h3>${index===0?"🏆 ":""}${esc(CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id)}</h3><div class="meta">${esc(basket.branch.branch_name||"")} · ${basket.branch.distance_km.toFixed(1)} ק״מ</div></div><span class="catalog-tag">${basket.chosen.length}/${wanted.length} מוצרים</span></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px"><div><small>⭐ סל מועדף</small><br><b>${formatMoney(basket.preferredTotal)}</b></div><div><small>💡 סל משתלם</small><br><b style="color:var(--ok)">${formatMoney(basket.smartTotal)}</b></div></div>${basket.savings>0?`<div class="msg" style="margin-top:10px"><b>חיסכון אפשרי: ${formatMoney(basket.savings)}</b>${changes.map(x=>`<div class="meta">${esc(x.product.name)}: ${esc(x.preferred.brand)} ← ${esc(x.alternative.brand)} · חיסכון ${formatMoney(Number(x.preferred.effective_price)-Number(x.alternative.effective_price))}</div>`).join("")}</div>`:'<div class="meta" style="margin-top:10px">הסל המועדף כבר כולל את האפשרויות המשתלמות ביותר.</div>'}</article>`}).join("")
+}
 async function openProductPrices(id){
   const product=items.find(item=>item.id===id);if(!product)return;
   $("pricesTitle").textContent=product.name;
@@ -1720,6 +1751,7 @@ $("catalogProducts").onclick=e=>{
   const manual=e.target.closest("[data-add-manual]");if(manual){openNeed();if(NEEDS[activeSubcategory]){$("pneedkey").value=activeSubcategory;syncNeedForm(false)}else{$("pneedkey").value="other";syncNeedForm(false);$("pname").value=subcategoryDefinition(activeCategory,activeSubcategory).name}return}
 };
 document.querySelectorAll("[data-back-dashboard]").forEach(b=>b.onclick=openDashboard);
+$("createShoppingBasket").onclick=openShoppingBasket;
 $("dashboardInventory").onclick=e=>{const search=e.target.closest("[data-inventory-search]");if(search)return openProductPrices(search.dataset.inventorySearch);const button=e.target.closest("[data-dashboard-status]");if(button)return status(button.dataset.productId,button.dataset.dashboardStatus)};
 $("dashboardInventory").onchange=async e=>{
   const dimension=e.target.closest("[data-inventory-dimension]");

@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v041-product-price-comparison";
+const CACHE="baby-smart-v042-complete-shopping-baskets";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{
