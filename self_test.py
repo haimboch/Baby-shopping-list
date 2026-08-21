@@ -1,8 +1,13 @@
 from tests.test_core import (
     test_classifier, test_expanded_baby_product_classifier,
+    test_baby_only_classifier_rejects_adult_and_general_products,
+    test_verified_product_image_extraction,
+    test_image_enrichment_verifies_exact_barcode,
+    test_product_photo_is_rejected_when_barcode_does_not_match,
     test_expanded_product_package_quantities, test_dimensions, test_quantities,
     test_xml_price_and_store, test_xml_imports_expanded_product_categories,
     test_catalog_collects_products_from_every_supermarket,
+    test_zero_source_numbers_are_safely_sanitized,
     test_multi_buy_promotion_terms, test_ksp_official_product_parser,
     test_ksp_print_page_fallback_parser,
     test_ksp_json_api_barcode_search_parser,
@@ -18,9 +23,14 @@ from tests.test_core import (
 
 for fn in (
     test_classifier, test_expanded_baby_product_classifier,
+    test_baby_only_classifier_rejects_adult_and_general_products,
+    test_verified_product_image_extraction,
+    test_image_enrichment_verifies_exact_barcode,
+    test_product_photo_is_rejected_when_barcode_does_not_match,
     test_expanded_product_package_quantities, test_dimensions, test_quantities,
     test_xml_price_and_store, test_xml_imports_expanded_product_categories,
     test_catalog_collects_products_from_every_supermarket,
+    test_zero_source_numbers_are_safely_sanitized,
     test_multi_buy_promotion_terms, test_ksp_official_product_parser,
     test_ksp_print_page_fallback_parser,
     test_ksp_json_api_barcode_search_parser,
