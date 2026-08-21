@@ -22,6 +22,7 @@ from .enrichment import MetadataEnricher
 from .ksp import collect_ksp_official
 from .superpharm_online import collect_superpharm_online
 from .cheapersal_prices import CheaperSalPriceFallback
+from .product_types import PRODUCT_TYPES
 
 SCRAPER_TO_DB = {
     "SUPER_PHARM": "super_pharm",
@@ -262,26 +263,18 @@ def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_CATALOG_NEEDS = {
-    "diapers": {"category": "החתלה", "need_name": "טיטולים"},
-    "wipes": {"category": "החתלה", "need_name": "מגבונים"},
-    "formula": {"category": "האכלה", "need_name": "תמ״ל"},
-}
+_CATALOG_NEEDS = PRODUCT_TYPES
 
 
 def save_official_catalog_rows(db: SupabaseREST, prices: list[dict[str, Any]]) -> dict[str, Any]:
-    """Persist only previously unknown products with useful official metadata."""
+    """Populate the product catalog from every recognized retailer price feed."""
     candidates: dict[str, dict[str, Any]] = {}
     for row in prices:
         need = str(row.get("need_key") or "")
         barcode = str(row.get("barcode") or "")
         name = str(row.get("product_name") or "").strip()
         brand = str(row.get("brand") or "").strip()
-        if (
-            row.get("chain_id") not in {"ksp", "super_pharm"}
-            or need not in _CATALOG_NEEDS
-            or not barcode or not name or not brand
-        ):
+        if need not in _CATALOG_NEEDS or not barcode or not name or not brand:
             continue
         meta = _CATALOG_NEEDS[need]
         dimension_type = str(row.get("dimension_type") or "none")
@@ -301,9 +294,16 @@ def save_official_catalog_rows(db: SupabaseREST, prices: list[dict[str, Any]]) -
             "product_name": name,
             "variant": None,
             "package_quantity": row.get("package_quantity"),
-            "package_unit": row.get("package_unit") or ("גרם" if need == "formula" else "יחידות"),
+            "package_unit": row.get("package_unit") or (
+                "גרם" if need in {"formula", "diaper_cream", "body_cream"}
+                else "מ״ל" if need in {"baby_wash", "bath_oil", "baby_laundry"}
+                else "יחידות"
+            ),
             "active": True,
-            "source_name": "KSP official" if row.get("chain_id") == "ksp" else "Super-Pharm transparency",
+            "source_name": {
+                "ksp": "KSP official",
+                "super_pharm": "Super-Pharm transparency",
+            }.get(str(row.get("chain_id") or ""), f"{row.get('chain_id') or 'retailer'} transparency"),
             "verified_at": utcnow(),
         }
 

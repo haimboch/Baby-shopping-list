@@ -14,6 +14,7 @@ from .classifier import (
     parse_package_quantity,
 )
 from .enrichment import API_BASE
+from .product_types import SUPPORTED_PRODUCT_TYPES
 
 
 CHAIN_MATCHERS = {
@@ -256,7 +257,7 @@ class CheaperSalPriceFallback:
                 break
             barcode = _barcode(target.get("barcode"))
             need_key = _clean(target.get("need_key"))
-            if not barcode or barcode in seen or need_key not in {"diapers", "formula", "wipes"}:
+            if not barcode or barcode in seen or need_key not in SUPPORTED_PRODUCT_TYPES:
                 continue
             seen.add(barcode)
             attempted += 1

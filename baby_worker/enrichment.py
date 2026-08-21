@@ -6,15 +6,12 @@ from typing import Any
 import requests
 
 from .classifier import classify_need, infer_brand, parse_dimension, parse_package_quantity
+from .product_types import PRODUCT_TYPES
 from .supabase_rest import SupabaseREST
 
 API_BASE = "https://api.cheapersal.co.il/api/v1"
 
-NEED_META = {
-    "diapers": {"category": "החתלה", "need_name": "טיטולים"},
-    "formula": {"category": "האכלה", "need_name": "תמ״ל"},
-    "wipes": {"category": "החתלה", "need_name": "מגבונים"},
-}
+NEED_META = PRODUCT_TYPES
 
 
 def utcnow() -> str:
@@ -125,7 +122,11 @@ class MetadataEnricher:
             "product_name": name,
             "variant": description,
             "package_quantity": package_quantity,
-            "package_unit": package_unit or ("גרם" if expected_need == "formula" else "יחידות"),
+            "package_unit": package_unit or (
+                "גרם" if expected_need in {"formula", "diaper_cream", "body_cream"}
+                else "מ״ל" if expected_need in {"baby_wash", "bath_oil", "baby_laundry"}
+                else "יחידות"
+            ),
             "active": True,
             "source_name": "Cheapersal metadata enrichment",
             "verified_at": utcnow(),
