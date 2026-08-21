@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.43</title>
+<title>Baby Smart List · Dashboard v0.44</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -355,7 +355,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.43</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.44</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -368,7 +368,14 @@ body{color:var(--ink)}
   <select id="pneedkey">
     <option value="diapers">👶 טיטולים</option>
     <option value="wipes">🧻 מגבונים</option>
+    <option value="diaper_cream">🧴 משחת החתלה</option>
+    <option value="changing_pads">🧺 משטחי החתלה</option>
+    <option value="diaper_bags">🗑️ שקיות לחיתולים</option>
     <option value="formula">🍼 תמ״ל</option>
+    <option value="baby_wash">🛁 סבון רחצה</option>
+    <option value="bath_oil">🫧 שמן אמבטיה</option>
+    <option value="body_cream">🌿 קרם גוף</option>
+    <option value="baby_laundry">🧺 חומרי כביסה לתינוק</option>
     <option value="other">📦 מוצר אחר</option>
   </select>
 </div>
@@ -559,7 +566,14 @@ const MODES={unit:"מחיר ליחידה","100g":"מחיר ל־100 גרם","100m
 const NEEDS={
   diapers:{name:"טיטולים",category:"החתלה",dimension_type:"size",comparison_mode:"unit",label:"מידה",values:["0","1","2","3","4","4+","5","5+","6","7"],alternatives:true},
   wipes:{name:"מגבונים",category:"החתלה",dimension_type:"none",comparison_mode:"unit",label:null,values:[],alternatives:true},
+  diaper_cream:{name:"משחת החתלה",category:"החתלה",dimension_type:"none",comparison_mode:"100g",label:null,values:[],alternatives:true},
+  changing_pads:{name:"משטחי החתלה",category:"החתלה",dimension_type:"none",comparison_mode:"unit",label:null,values:[],alternatives:true},
+  diaper_bags:{name:"שקיות לחיתולים",category:"החתלה",dimension_type:"none",comparison_mode:"unit",label:null,values:[],alternatives:true},
   formula:{name:"תמ״ל",category:"האכלה",dimension_type:"stage",comparison_mode:"100g",label:"שלב",values:["1","2","3"],alternatives:true},
+  baby_wash:{name:"סבון רחצה",category:"רחצה וטיפוח",dimension_type:"none",comparison_mode:"100ml",label:null,values:[],alternatives:true},
+  bath_oil:{name:"שמן אמבטיה",category:"רחצה וטיפוח",dimension_type:"none",comparison_mode:"100ml",label:null,values:[],alternatives:true},
+  body_cream:{name:"קרם גוף",category:"רחצה וטיפוח",dimension_type:"none",comparison_mode:"100g",label:null,values:[],alternatives:true},
+  baby_laundry:{name:"חומרי כביסה",category:"כביסה",dimension_type:"none",comparison_mode:"100ml",label:null,values:[],alternatives:true},
   other:{name:"",category:"כללי",dimension_type:"none",comparison_mode:"package",label:null,values:[],alternatives:false}
 };
 const DASHBOARD_CATEGORIES=[
@@ -585,7 +599,7 @@ const DASHBOARD_CATEGORIES=[
     {key:"other",name:"מוצרים נוספים",emoji:"📦",description:"מוצרים שהוספתם למשפחה"}
   ]}
 ];
-const SUPPORTED_NEEDS=new Set(["diapers","wipes","formula"]);
+const SUPPORTED_NEEDS=new Set(Object.keys(NEEDS).filter(key=>key!=="other"));
 const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be","osher_ad","super_pharm","ksp"];
 const ONLINE_CHAINS=new Set(["ksp"]);
 const isOnlineBranch=row=>ONLINE_CHAINS.has(row?.chain_id)||String(row?.branch_code||"")==="online";
@@ -1153,12 +1167,23 @@ async function disablePush(){
   }catch(e){$("pushMsg").textContent="לא הצלחתי לכבות Push: "+(e?.message||e)}
 }
 
+async function loadActiveCatalog(){
+  const fields="barcode,category,need_name,need_detail,brand,product_name,variant,package_quantity,package_unit,active,need_key,dimension_type,dimension_value";
+  const rows=[],pageSize=500;
+  for(let offset=0;offset<10000;offset+=pageSize){
+    const result=await sb.from("baby_product_catalog").select(fields).eq("active",true).order("brand").order("barcode").range(offset,offset+pageSize-1);
+    if(result.error)return result;
+    rows.push(...(result.data||[]));
+    if((result.data||[]).length<pageSize)break
+  }
+  return {data:rows,error:null}
+}
 async function loadAll(){
   let [pr,ar,cr,catr]=await Promise.all([
     sb.from("products").select("*").eq("household_id",household.id).order("created_at"),
     sb.from("product_alternatives").select("*").eq("household_id",household.id).order("preferred",{ascending:false}).order("created_at"),
     sb.from("baby_consumption_stats").select("*").eq("household_id",household.id),
-    sb.from("baby_product_catalog").select("barcode,category,need_name,need_detail,brand,product_name,variant,package_quantity,package_unit,active,need_key,dimension_type,dimension_value").eq("active",true).order("brand")
+    loadActiveCatalog()
   ]);
   if(pr.error)return alert("שגיאה בטעינת הצרכים: "+pr.error.message);
   if(ar.error)return alert("שגיאה בטעינת המוצרים החלופיים: "+ar.error.message);
@@ -1433,7 +1458,7 @@ async function comparePrices(id){
   currentNeed=p;lastCompare=null;selectedQuote=null;
 
   if(!SUPPORTED_NEEDS.has(p.need_key)){
-    alert("השוואת המחירים האוטומטית זמינה כרגע לחיתולים, תמ״ל ומגבונים.");
+    alert("השוואת המחירים האוטומטית זמינה לסוגי מוצרי התינוק המובנים במערכת.");
     return;
   }
   if(p.allow_alternatives===false&&!p.preferred_barcode){

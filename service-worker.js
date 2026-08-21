@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v043-waze-shopping-inventory";
+const CACHE="baby-smart-v044-all-baby-product-types";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{
