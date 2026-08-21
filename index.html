@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.38</title>
+<title>Baby Smart List · Dashboard v0.39</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -269,7 +269,12 @@ body{color:var(--ink)}
     </div>
 
     <section class="dashboard-section">
-      <div class="dashboard-section-head"><div><h2>מה מחפשים היום?</h2><p>בחרו קטגוריה כדי להגיע למוצרים</p></div><span class="count-pill" id="dashboardTracked">0 במעקב</span></div>
+      <div class="dashboard-section-head"><div><h2>📦 ניהול מלאי</h2><p>המוצרים שלכם בבית והמצב העדכני שלהם</p></div><span class="count-pill" id="dashboardTracked">0 במעקב</span></div>
+      <div id="dashboardInventory" style="display:grid;gap:10px"></div>
+    </section>
+
+    <section class="dashboard-section">
+      <div class="dashboard-section-head"><div><h2>🔎 חיפוש מוצר</h2><p>בחרו קטגוריה כדי להגיע למוצרים</p></div></div>
       <div class="category-grid" id="categoryGrid"></div>
     </section>
 
@@ -282,10 +287,9 @@ body{color:var(--ink)}
     </section>
 
     <section class="dashboard-section">
-      <div class="dashboard-section-head"><div><h2>הכלים שלי</h2><p>פיצ׳רים שנוסיף בהמשך</p></div></div>
+      <div class="dashboard-section-head"><div><h2>חיסכון חודשי</h2><p>בקרוב תוכלו לראות כמה חסכתם</p></div></div>
       <div class="future-grid">
         <article class="future-card" aria-disabled="true"><span class="coming-soon">בקרוב</span><span class="future-icon">💰</span><b>חיסכון חודשי</b><small>כמה חסכתם בעזרת השוואת המחירים</small></article>
-        <article class="future-card" aria-disabled="true"><span class="coming-soon">בקרוב</span><span class="future-icon">📦</span><b>מעקב מלאי</b><small>תחזית אישית למועד חידוש המוצרים</small></article>
       </div>
     </section>
   </section>
@@ -331,7 +335,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.38</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.39</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -649,6 +653,13 @@ function renderDashboard(){
   const greeting=hour<12?"בוקר טוב":hour<17?"צהריים טובים":hour<21?"ערב טוב":"לילה טוב";
   $("dashboardGreeting").textContent=`${greeting} 👋`;
   $("dashboardTracked").textContent=`${items.length} במעקב`;
+  const priority={urgent:0,out:0,low:1,ok:2};
+  const sorted=[...items].sort((a,b)=>(priority[a.stock_status]??2)-(priority[b.stock_status]??2));
+  $("dashboardInventory").innerHTML=sorted.length?sorted.map(p=>{
+    const current=p.stock_status==="urgent"?"out":p.stock_status;
+    const label=p.dimension_value?` · ${p.dimension_type==="size"?"מידה":"שלב"} ${esc(p.dimension_value)}`:"";
+    return `<article class="product" style="background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px"><div class="ph"><h3>${esc(p.name)}${label}</h3><span style="font-weight:800;color:${S[p.stock_status]?.[2]||S.ok[2]}">${S[p.stock_status]?.[1]||"🟢"}</span></div><div class="statuses" style="grid-template-columns:repeat(3,1fr)">${[["ok","🟢","יש"],["low","🟠","עומד להיגמר"],["out","🔴","חסר"]].map(([key,icon,text])=>`<button class="sbtn ${current===key?"cur":""}" data-dashboard-status="${key}" data-product-id="${p.id}" data-s="${key}">${icon} ${text}</button>`).join("")}</div></article>`
+  }).join(""):`<div style="background:#fff;border:1px dashed var(--line);border-radius:16px;padding:22px;text-align:center;color:var(--muted)">עדיין אין מוצרים במלאי. הוסיפו מוצר דרך הקטגוריות או הברקוד.</div>`;
   const cats=dashboardCategories();
   $("categoryGrid").innerHTML=cats.map(c=>{
     const tracked=categoryTrackedCount(c),available=c.subs.filter(s=>subCatalogRows(s.key).length||subTrackedItems(s.key).length).length;
@@ -1673,6 +1684,7 @@ $("catalogProducts").onclick=e=>{
   const manual=e.target.closest("[data-add-manual]");if(manual){openNeed();if(NEEDS[activeSubcategory]){$("pneedkey").value=activeSubcategory;syncNeedForm(false)}else{$("pneedkey").value="other";syncNeedForm(false);$("pname").value=subcategoryDefinition(activeCategory,activeSubcategory).name}return}
 };
 document.querySelectorAll("[data-back-dashboard]").forEach(b=>b.onclick=openDashboard);
+$("dashboardInventory").onclick=e=>{const button=e.target.closest("[data-dashboard-status]");if(button)return status(button.dataset.productId,button.dataset.dashboardStatus)};
 document.querySelectorAll("[data-back-category]").forEach(b=>b.onclick=()=>openCategory(activeCategory));
 $("barcodeStart").onclick=openBarcodeScanner;$("bclose").onclick=()=>$("bdlg").close();
 $("barcodePhoto").onchange=e=>{const file=e.target.files?.[0];if(file)decodeBarcodePhoto(file)};

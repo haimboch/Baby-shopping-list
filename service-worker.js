@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v038-ksp-cloudflare-relay";
+const CACHE="baby-smart-v039-active-inventory-dashboard";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{
