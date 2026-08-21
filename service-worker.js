@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v042-complete-shopping-baskets";
+const CACHE="baby-smart-v043-waze-shopping-inventory";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{

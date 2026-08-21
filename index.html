@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.42</title>
+<title>Baby Smart List · Dashboard v0.43</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -165,6 +165,7 @@ body{color:var(--ink)}
 .subcategory-grid{display:grid;gap:9px}.subcategory-card{width:100%;border:1px solid var(--line);border-radius:18px;background:#fff;padding:12px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;text-align:right;box-shadow:0 7px 20px rgba(38,43,60,.05)}.subcategory-card:active{transform:scale(.99)}.subcategory-icon{width:48px;height:48px;border-radius:16px;background:var(--lilac);display:grid;place-items:center;font-size:1.4rem}.subcategory-card b{display:block;font-size:.92rem}.subcategory-card small{display:block;color:var(--soft-ink);font-size:.7rem;margin-top:3px}.subcategory-card .sub-arrow{color:var(--violet);font-size:1.1rem}
 .catalog-search{position:relative;margin-bottom:12px}.catalog-search input{width:100%;height:46px;border:1px solid var(--line);background:#fff;border-radius:15px;padding:0 42px 0 13px}.catalog-search span{position:absolute;right:14px;top:12px}.catalog-list{display:grid;gap:9px}.catalog-card{border:1px solid var(--line);border-radius:18px;background:#fff;padding:13px;box-shadow:0 7px 20px rgba(38,43,60,.05)}.catalog-card.highlighted{border:2px solid var(--violet);box-shadow:0 10px 26px rgba(101,87,232,.15)}.catalog-card-head{display:grid;grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:start}.catalog-product-icon{width:46px;height:46px;border-radius:15px;background:var(--lilac);display:grid;place-items:center;font-size:1.35rem}.catalog-card h3{font-size:.91rem;margin:0}.catalog-card .brand-line{font-size:.74rem;color:var(--soft-ink);margin-top:3px}.catalog-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}.catalog-tag{background:#f2f4f8;color:#5f6676;border-radius:999px;padding:4px 7px;font-size:.64rem;font-weight:800}.catalog-card .actions{margin-top:11px}.catalog-card .actions .btn{flex:1;min-height:40px;font-size:.76rem}
 .catalog-empty{padding:34px 18px;text-align:center;border:1px dashed #d6d9e3;background:rgba(255,255,255,.6);border-radius:20px}.catalog-empty .big{font-size:2rem}.catalog-empty b{display:block;margin:8px 0 4px}.catalog-empty p{margin:0;color:var(--soft-ink);font-size:.78rem;line-height:1.5}
+.basket-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}.basket-actions .btn,.shopping-option .btn{min-height:43px;text-align:center;text-decoration:none;display:grid;place-items:center}.shopping-progress{padding:12px 14px;border-radius:16px;background:var(--lilac);color:var(--violet-dark);font-size:.83rem;font-weight:800;margin-bottom:12px}.shopping-item{display:grid;gap:10px}.shopping-item.is-bought{border-color:#bfe5d7;background:#f4fcf8}.shopping-option{border:1px solid var(--line);border-radius:14px;padding:10px;display:grid;gap:8px}.shopping-option.alternative{background:#f4fbf7;border-color:#cceadc}.shopping-option-head{display:flex;justify-content:space-between;align-items:start;gap:8px}.shopping-option-head b{font-size:.84rem}.shopping-option-head strong{white-space:nowrap;color:var(--ok)}.shopping-option small{color:var(--soft-ink);font-size:.72rem}.shopping-complete{padding:9px;border-radius:12px;background:#e7f7ef;color:#087b58;font-size:.77rem;font-weight:800;text-align:center}
 .family-summary{display:flex;align-items:center;gap:10px;background:#f8f8fc;border:1px solid var(--line);border-radius:14px;padding:11px;margin:12px 0}.family-summary .family-stack{font-size:1.3rem}.family-summary b{display:block}.family-summary small{color:var(--soft-ink)}.family-members{display:grid;gap:8px;margin:12px 0}.family-member{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:10px}.member-avatar{width:38px;height:38px;border-radius:13px;background:var(--lilac);display:grid;place-items:center;font-weight:900;color:var(--violet)}.family-member b{display:block;font-size:.82rem;overflow:hidden;text-overflow:ellipsis}.family-member small{display:block;color:var(--soft-ink);font-size:.68rem;margin-top:2px}.role-tag{background:#eef8f4;color:#087b58;border-radius:999px;padding:4px 7px;font-size:.61rem;font-weight:900}
 .barcode-photo-box{display:block;border:1px dashed #bbb5f5;background:#f8f7ff;border-radius:18px;padding:22px 14px;text-align:center;cursor:pointer}.barcode-photo-box .camera{font-size:2rem}.barcode-photo-box b{display:block;margin-top:7px}.barcode-photo-box small{display:block;color:var(--soft-ink);font-size:.73rem;margin-top:4px}.scan-preview{max-width:100%;max-height:180px;border-radius:14px;margin-top:10px}.scan-state{border-radius:13px;padding:10px;margin-top:10px;background:#f5f6fa;color:#5e6576;font-size:.78rem;line-height:1.5}.scan-state.success{background:#eaf8f2;color:#087b58}.scan-state.error{background:#fff0f2;color:#ad3348}
 .legacy-workspace{margin-top:12px}.legacy-back{margin-bottom:10px}.app-footnote{margin-bottom:20px}.fab.dashboard-hidden{display:none}
@@ -300,6 +301,12 @@ body{color:var(--ink)}
     <div id="basketResults" class="catalog-list"></div>
   </section>
 
+  <section class="app-page hidden" id="shoppingDetailsPage">
+    <div class="page-head"><button class="back-button" id="backToBaskets" aria-label="חזרה לרשימת הסופרים">→</button><div class="page-head-copy"><small id="shoppingBranchLabel">רשימת קניות לסניף</small><h1 id="shoppingBranchTitle">🛒 רשימת קניות</h1><p id="shoppingBranchAddress"></p></div></div>
+    <div id="shoppingProgress" class="shopping-progress"></div>
+    <div id="shoppingItems" class="catalog-list"></div>
+  </section>
+
   <section class="app-page hidden" id="productPricesPage">
     <div class="page-head"><button class="back-button" data-back-dashboard aria-label="חזרה למלאי">→</button><div class="page-head-copy"><small id="pricesLocation">השוואת מחירים באזור שלך</small><h1 id="pricesTitle">חיפוש מוצר</h1><p id="pricesSubtitle"></p></div></div>
     <div id="pricesNotice"></div>
@@ -348,7 +355,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.42</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.43</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -616,6 +623,8 @@ function rowMatchesArea(r,profile){
   return false;
 }
 let session=null,household=null,member=null,items=[],alts=[],consumption=[],catalog=[],householdUsers=[],notifications=[],notificationPrefs=null,filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null,onboardStep=1,onboardLocation=null,activeCategory=null,activeSubcategory=null,highlightBarcode=null;
+let shoppingBaskets=[],activeShoppingBasket=null;
+const purchasedShoppingItems=new Map(),pendingShoppingPurchases=new Set();
 let zxingLoadPromise=null;
 const $=x=>document.getElementById(x),esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function view(id){["auth","onboard","app"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
@@ -656,7 +665,7 @@ function subTrackedItems(key){
 }
 function subCatalogRows(key){return catalog.filter(p=>p.need_key===key&&p.active!==false)}
 function appPage(id){
-  ["dashboardPage","categoryPage","catalogPage","inventoryWorkspace","productPricesPage","shoppingBasketPage"].forEach(x=>$(x).classList.toggle("hidden",x!==id));
+  ["dashboardPage","categoryPage","catalogPage","inventoryWorkspace","productPricesPage","shoppingBasketPage","shoppingDetailsPage"].forEach(x=>$(x).classList.toggle("hidden",x!==id));
   $("add").classList.toggle("dashboard-hidden",id!=="inventoryWorkspace");
   window.scrollTo({top:0,behavior:"smooth"})
 }
@@ -1567,6 +1576,7 @@ async function comparePrices(id){
   renderComparison();
 }
 async function openShoppingBasket(){
+  shoppingBaskets=[];activeShoppingBasket=null;purchasedShoppingItems.clear();
   const unique=new Map();items.filter(p=>p.stock_status!=="ok").forEach(p=>{const key=p.need_key&&p.need_key!=="other"?p.need_key:`other:${p.name}`;if(!unique.has(key))unique.set(key,p)});
   const wanted=[...unique.values()];
   $("basketLocation").textContent=`📍 ${household?.city||"האזור שלך"} · ${household?.search_radius_km||10} ק״מ`;
@@ -1584,12 +1594,49 @@ async function openShoppingBasket(){
   if(error){$("basketResults").innerHTML=`<div class="msg err">${esc(error.message)}</div>`;return}
   const baskets=[];
   for(const branch of nearby){const branchRows=(prices||[]).filter(r=>r.chain_id===branch.chain_id&&String(r.branch_code)===String(branch.branch_code));const chosen=[];let complete=true;
-    for(const product of wanted){const matching=branchRows.filter(r=>r.need_key===product.need_key&&(!product.dimension_value||String(r.dimension_value||"")===String(product.dimension_value))).sort((a,b)=>Number(a.effective_price)-Number(b.effective_price));const preferredCatalog=catalog.find(c=>String(c.barcode)===String(product.preferred_barcode||""));const preferred=product.preferred_barcode?(matching.find(r=>String(r.barcode)===String(product.preferred_barcode))||matching.find(r=>preferredCatalog?.brand&&r.brand===preferredCatalog.brand)):matching[0];if(!preferred){complete=false;break}const alternative=product.need_key==="formula"?preferred:(matching[0]&&Number(matching[0].effective_price)<Number(preferred.effective_price)?matching[0]:preferred);chosen.push({product,preferred,alternative})}
+    for(const product of wanted){const matching=branchRows.filter(r=>r.need_key===product.need_key&&(!product.dimension_value||String(r.dimension_value||"")===String(product.dimension_value))).sort((a,b)=>Number(a.effective_price)-Number(b.effective_price));const preferredCatalog=catalog.find(c=>String(c.barcode)===String(product.preferred_barcode||""));const preferred=product.preferred_barcode?(matching.find(r=>String(r.barcode)===String(product.preferred_barcode))||matching.find(r=>preferredCatalog?.brand&&r.brand===preferredCatalog.brand)):matching[0];if(!preferred){complete=false;break}const cheaperOtherBrand=matching.find(row=>row.brand!==preferred.brand&&Number(row.effective_price)<Number(preferred.effective_price));const alternative=product.need_key==="formula"?preferred:(cheaperOtherBrand||preferred);chosen.push({product,preferred,alternative})}
     if(complete){const preferredTotal=chosen.reduce((sum,x)=>sum+Number(x.preferred.effective_price),0),smartTotal=chosen.reduce((sum,x)=>sum+Number(x.alternative.effective_price),0);baskets.push({branch,chosen,preferredTotal,smartTotal,savings:preferredTotal-smartTotal})}
   }
   baskets.sort((a,b)=>a.preferredTotal-b.preferredTotal||a.branch.distance_km-b.branch.distance_km);
   if(!baskets.length){$("basketResults").innerHTML='<div class="empty">לא נמצא באזור סופר שבו זמינים כל המוצרים לפי ההעדפות שנבחרו.</div>';return}
-  $("basketResults").innerHTML=baskets.map((basket,index)=>{const changes=basket.chosen.filter(x=>String(x.preferred.barcode)!==String(x.alternative.barcode));return `<article class="catalog-card"><div class="ph"><div><h3>${index===0?"🏆 ":""}${esc(CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id)}</h3><div class="meta">${esc(basket.branch.branch_name||"")} · ${basket.branch.distance_km.toFixed(1)} ק״מ</div></div><span class="catalog-tag">${basket.chosen.length}/${wanted.length} מוצרים</span></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px"><div><small>⭐ סל מועדף</small><br><b>${formatMoney(basket.preferredTotal)}</b></div><div><small>💡 סל משתלם</small><br><b style="color:var(--ok)">${formatMoney(basket.smartTotal)}</b></div></div>${basket.savings>0?`<div class="msg" style="margin-top:10px"><b>חיסכון אפשרי: ${formatMoney(basket.savings)}</b>${changes.map(x=>`<div class="meta">${esc(x.product.name)}: ${esc(x.preferred.brand)} ← ${esc(x.alternative.brand)} · חיסכון ${formatMoney(Number(x.preferred.effective_price)-Number(x.alternative.effective_price))}</div>`).join("")}</div>`:'<div class="meta" style="margin-top:10px">הסל המועדף כבר כולל את האפשרויות המשתלמות ביותר.</div>'}</article>`}).join("")
+  shoppingBaskets=baskets;
+  $("basketResults").innerHTML=baskets.map((basket,index)=>{const changes=basket.chosen.filter(x=>String(x.preferred.barcode)!==String(x.alternative.barcode));const wazeUrl=`https://waze.com/ul?ll=${encodeURIComponent(`${basket.branch.latitude},${basket.branch.longitude}`)}&navigate=yes`;return `<article class="catalog-card"><div class="ph"><div><h3>${index===0?"🏆 ":""}${esc(CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id)}</h3><div class="meta">${esc(basket.branch.branch_name||"")} · ${basket.branch.distance_km.toFixed(1)} ק״מ</div></div><span class="catalog-tag">${basket.chosen.length}/${wanted.length} מוצרים</span></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px"><div><small>⭐ סל מועדף</small><br><b>${formatMoney(basket.preferredTotal)}</b></div><div><small>💡 סל משתלם</small><br><b style="color:var(--ok)">${formatMoney(basket.smartTotal)}</b></div></div>${basket.savings>0?`<div class="msg" style="margin-top:10px"><b>חיסכון אפשרי: ${formatMoney(basket.savings)}</b>${changes.map(x=>`<div class="meta">${esc(x.product.name)}: ${esc(x.preferred.brand)} ← ${esc(x.alternative.brand)} · חיסכון ${formatMoney(Number(x.preferred.effective_price)-Number(x.alternative.effective_price))}</div>`).join("")}</div>`:'<div class="meta" style="margin-top:10px">הסל המועדף כבר כולל את האפשרויות המשתלמות ביותר.</div>'}<div class="basket-actions"><a class="btn soft" href="${esc(wazeUrl)}" target="_blank" rel="noopener noreferrer">📍 ניווט ב־Waze</a><button class="btn primary" data-open-basket="${index}">🛒 רשימת קניות</button></div></article>`}).join("")
+}
+function openBasketDetails(index){
+  const basket=shoppingBaskets[Number(index)];if(!basket)return;
+  activeShoppingBasket=basket;
+  $("shoppingBranchLabel").textContent=CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id;
+  $("shoppingBranchTitle").textContent=basket.branch.branch_name||"רשימת קניות";
+  $("shoppingBranchAddress").textContent=[basket.branch.address,basket.branch.city].filter(Boolean).join(" · ")||"סניף באזור שלך";
+  renderBasketDetails();appPage("shoppingDetailsPage");
+}
+function renderBasketDetails(){
+  const basket=activeShoppingBasket;if(!basket)return;
+  const done=basket.chosen.filter(item=>purchasedShoppingItems.has(item.product.id)).length;
+  $("shoppingProgress").textContent=`✅ ${done} מתוך ${basket.chosen.length} מוצרים נקנו · המלאי מתעדכן מיד אחרי כל קנייה`;
+  $("shoppingItems").innerHTML=basket.chosen.map(item=>{
+    const saved=purchasedShoppingItems.get(item.product.id),busy=pendingShoppingPurchases.has(item.product.id);
+    const hasAlternative=item.product.need_key!=="formula"&&String(item.preferred.barcode)!==String(item.alternative.barcode)&&item.preferred.brand!==item.alternative.brand;
+    const description=item.product.dimension_value?`${item.product.dimension_type==="stage"?"שלב":"מידה"} ${item.product.dimension_value}`:"";
+    const preferred=`<div class="shopping-option"><div class="shopping-option-head"><div><b>⭐ ${esc(item.preferred.brand)}</b><br><small>${esc(item.preferred.product_name||item.product.name)}</small></div><strong>${formatMoney(item.preferred.effective_price)}</strong></div>${saved?"":`<button class="btn primary" data-basket-buy="${item.product.id}" data-basket-choice="preferred" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":"✓ קניתי"}</button>`}</div>`;
+    const alternative=hasAlternative?`<div class="shopping-option alternative"><div class="shopping-option-head"><div><b>💡 חלופה: ${esc(item.alternative.brand)}</b><br><small>חיסכון של ${formatMoney(Number(item.preferred.effective_price)-Number(item.alternative.effective_price))}</small></div><strong>${formatMoney(item.alternative.effective_price)}</strong></div>${saved?"":`<button class="btn soft" data-basket-buy="${item.product.id}" data-basket-choice="alternative" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":"✓ קניתי חלופה"}</button>`}</div>`:"";
+    return `<article class="catalog-card shopping-item ${saved?"is-bought":""}"><div class="ph"><div><h3>${esc(item.product.name)}</h3>${description?`<div class="meta">${esc(description)}</div>`:""}</div>${saved?'<span class="catalog-tag">✓ נקנה</span>':""}</div>${saved?`<div class="shopping-complete">✅ נקנה ${esc(saved.brand)} ב־${formatMoney(saved.price)} · המלאי עודכן</div>`:`${preferred}${alternative}`}</article>`
+  }).join("")
+}
+async function markBasketPurchased(productId,choice){
+  const basket=activeShoppingBasket;if(!basket||purchasedShoppingItems.has(productId)||pendingShoppingPurchases.has(productId))return;
+  const item=basket.chosen.find(row=>row.product.id===productId);if(!item)return;
+  const quote=choice==="alternative"&&item.product.need_key!=="formula"?item.alternative:item.preferred;
+  pendingShoppingPurchases.add(productId);renderBasketDetails();
+  const savings=Math.max(0,Number(item.preferred.effective_price)-Number(quote.effective_price));
+  const {error:eventError}=await sb.from("purchase_events").insert({household_id:household.id,product_id:productId,chain_name:CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id,branch_name:basket.branch.branch_name||null,paid_price:Number(quote.effective_price),package_count:1,reference_price:Number(item.preferred.effective_price),calculated_savings:savings,notes:choice==="alternative"?`חלופה: ${quote.brand}`:null});
+  if(eventError){pendingShoppingPurchases.delete(productId);renderBasketDetails();alert("לא הצלחתי לשמור את הקנייה: "+eventError.message);return}
+  const {error:inventoryError}=await sb.rpc("change_product_inventory",{p_product_id:productId,p_delta:1,p_change_kind:"purchase"});
+  if(inventoryError){pendingShoppingPurchases.delete(productId);renderBasketDetails();alert("הקנייה נשמרה, אבל עדכון המלאי נכשל: "+inventoryError.message);return}
+  const {error:statusError}=await sb.from("products").update({stock_status:"ok",updated_by:session.user.id}).eq("id",productId);
+  if(statusError){pendingShoppingPurchases.delete(productId);renderBasketDetails();alert("המלאי גדל, אבל עדכון הסטטוס נכשל: "+statusError.message);return}
+  purchasedShoppingItems.set(productId,{brand:quote.brand,price:Number(quote.effective_price),choice});pendingShoppingPurchases.delete(productId);
+  await loadAll();renderBasketDetails();
 }
 async function openProductPrices(id){
   const product=items.find(item=>item.id===id);if(!product)return;
@@ -1752,6 +1799,9 @@ $("catalogProducts").onclick=e=>{
 };
 document.querySelectorAll("[data-back-dashboard]").forEach(b=>b.onclick=openDashboard);
 $("createShoppingBasket").onclick=openShoppingBasket;
+$("basketResults").onclick=e=>{const button=e.target.closest("[data-open-basket]");if(button)return openBasketDetails(button.dataset.openBasket)};
+$("backToBaskets").onclick=()=>appPage("shoppingBasketPage");
+$("shoppingItems").onclick=e=>{const button=e.target.closest("[data-basket-buy]");if(button)return markBasketPurchased(button.dataset.basketBuy,button.dataset.basketChoice)};
 $("dashboardInventory").onclick=e=>{const search=e.target.closest("[data-inventory-search]");if(search)return openProductPrices(search.dataset.inventorySearch);const button=e.target.closest("[data-dashboard-status]");if(button)return status(button.dataset.productId,button.dataset.dashboardStatus)};
 $("dashboardInventory").onchange=async e=>{
   const dimension=e.target.closest("[data-inventory-dimension]");
