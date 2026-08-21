@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.39</title>
+<title>Baby Smart List · Dashboard v0.40</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -335,7 +335,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.39</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.40</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -652,14 +652,23 @@ function renderDashboard(){
   const hour=new Date().getHours();
   const greeting=hour<12?"בוקר טוב":hour<17?"צהריים טובים":hour<21?"ערב טוב":"לילה טוב";
   $("dashboardGreeting").textContent=`${greeting} 👋`;
-  $("dashboardTracked").textContent=`${items.length} במעקב`;
   const priority={urgent:0,out:0,low:1,ok:2};
-  const sorted=[...items].sort((a,b)=>(priority[a.stock_status]??2)-(priority[b.stock_status]??2));
-  $("dashboardInventory").innerHTML=sorted.length?sorted.map(p=>{
+  const unique=new Map();
+  [...items].sort((a,b)=>(priority[a.stock_status]??2)-(priority[b.stock_status]??2)).forEach(p=>{const key=p.need_key&&p.need_key!=="other"?p.need_key:`other:${p.name}`;if(!unique.has(key))unique.set(key,p)});
+  const sorted=[...unique.values()];
+  $("dashboardTracked").textContent=`${sorted.length} במעקב`;
+  const grouped=new Map();
+  sorted.forEach(p=>{const key=p.category||NEEDS[p.need_key]?.category||"כללי";if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(p)});
+  $("dashboardInventory").innerHTML=sorted.length?[...grouped].map(([category,products])=>`<section style="display:grid;gap:9px;margin-bottom:8px"><h3 style="font-size:.92rem;margin:5px 3px 0;color:var(--soft-ink)">${esc(category)}</h3>${products.map(p=>{
     const current=p.stock_status==="urgent"?"out":p.stock_status;
-    const label=p.dimension_value?` · ${p.dimension_type==="size"?"מידה":"שלב"} ${esc(p.dimension_value)}`:"";
-    return `<article class="product" style="background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px"><div class="ph"><h3>${esc(p.name)}${label}</h3><span style="font-weight:800;color:${S[p.stock_status]?.[2]||S.ok[2]}">${S[p.stock_status]?.[1]||"🟢"}</span></div><div class="statuses" style="grid-template-columns:repeat(3,1fr)">${[["ok","🟢","יש"],["low","🟠","עומד להיגמר"],["out","🔴","חסר"]].map(([key,icon,text])=>`<button class="sbtn ${current===key?"cur":""}" data-dashboard-status="${key}" data-product-id="${p.id}" data-s="${key}">${icon} ${text}</button>`).join("")}</div></article>`
-  }).join(""):`<div style="background:#fff;border:1px dashed var(--line);border-radius:16px;padding:22px;text-align:center;color:var(--muted)">עדיין אין מוצרים במלאי. הוסיפו מוצר דרך הקטגוריות או הברקוד.</div>`;
+    const config=NEEDS[p.need_key]||NEEDS.other;
+    const rows=catalog.filter(row=>row.need_key===p.need_key&&row.active!==false);
+    const selected=catalog.find(row=>String(row.barcode)===String(p.preferred_barcode||""));
+    const brands=[...new Set(rows.map(row=>String(row.brand||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"he"));
+    const dimensions=config.dimension_type!=="none"?`<label style="display:grid;gap:4px;font-size:.72rem;color:var(--muted)">${esc(config.label)}<select data-inventory-dimension="${p.id}" style="min-height:38px;border:1px solid var(--line);border-radius:9px;padding:5px">${config.values.map(value=>`<option value="${esc(value)}" ${String(p.dimension_value)===value?"selected":""}>${esc(config.label)} ${esc(value)}</option>`).join("")}</select></label>`:"";
+    const brand=`<label style="display:grid;gap:4px;font-size:.72rem;color:var(--muted)">יצרן<select data-inventory-brand="${p.id}" style="min-height:38px;border:1px solid var(--line);border-radius:9px;padding:5px"><option value="">${brands.length?"בחרו יצרן":"אין יצרנים במאגר"}</option>${brands.map(value=>`<option value="${esc(value)}" ${selected?.brand===value?"selected":""}>${esc(value)}</option>`).join("")}</select></label>`;
+    return `<article class="product" style="background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px"><div class="ph"><h3>${esc(p.name)}</h3><span style="font-weight:800;color:${S[p.stock_status]?.[2]||S.ok[2]}">${S[p.stock_status]?.[1]||"🟢"}</span></div><div style="display:grid;grid-template-columns:${dimensions?"1fr 1fr":"1fr"};gap:9px;margin-top:10px">${dimensions}${brand}</div><div class="statuses" style="grid-template-columns:repeat(3,1fr)">${[["ok","🟢","יש"],["low","🟠","עומד להיגמר"],["out","🔴","חסר"]].map(([key,icon,text])=>`<button class="sbtn ${current===key?"cur":""}" data-dashboard-status="${key}" data-product-id="${p.id}" data-s="${key}">${icon} ${text}</button>`).join("")}</div></article>`
+  }).join("")}</section>`).join(""):`<div style="background:#fff;border:1px dashed var(--line);border-radius:16px;padding:22px;text-align:center;color:var(--muted)">עדיין אין מוצרים במלאי. הוסיפו מוצר דרך הקטגוריות או הברקוד.</div>`;
   const cats=dashboardCategories();
   $("categoryGrid").innerHTML=cats.map(c=>{
     const tracked=categoryTrackedCount(c),available=c.subs.filter(s=>subCatalogRows(s.key).length||subTrackedItems(s.key).length).length;
@@ -1685,6 +1694,17 @@ $("catalogProducts").onclick=e=>{
 };
 document.querySelectorAll("[data-back-dashboard]").forEach(b=>b.onclick=openDashboard);
 $("dashboardInventory").onclick=e=>{const button=e.target.closest("[data-dashboard-status]");if(button)return status(button.dataset.productId,button.dataset.dashboardStatus)};
+$("dashboardInventory").onchange=async e=>{
+  const dimension=e.target.closest("[data-inventory-dimension]");
+  const brand=e.target.closest("[data-inventory-brand]");
+  if(!dimension&&!brand)return;
+  const id=dimension?.dataset.inventoryDimension||brand?.dataset.inventoryBrand;
+  const product=items.find(p=>p.id===id);if(!product)return;
+  const changes={updated_by:session.user.id};
+  if(dimension){changes.dimension_value=dimension.value;changes.need_detail=`${NEEDS[product.need_key]?.label||"מידה"} ${dimension.value}`;const existing=catalog.find(row=>String(row.barcode)===String(product.preferred_barcode||""));const match=catalog.find(row=>row.need_key===product.need_key&&String(row.dimension_value||"")===dimension.value&&(!existing?.brand||row.brand===existing.brand));changes.preferred_barcode=match?.barcode||null}
+  if(brand){const match=catalog.find(row=>row.need_key===product.need_key&&row.brand===brand.value&&(!product.dimension_value||String(row.dimension_value||"")===String(product.dimension_value)));if(brand.value&&!match)return alert("לא נמצא מוצר של היצרן במידה או בשלב שנבחרו.");changes.preferred_barcode=match?.barcode||null}
+  const {error}=await sb.from("products").update(changes).eq("id",id);if(error)return alert("לא הצלחתי לעדכן את ההעדפה: "+error.message);Object.assign(product,changes);render()
+};
 document.querySelectorAll("[data-back-category]").forEach(b=>b.onclick=()=>openCategory(activeCategory));
 $("barcodeStart").onclick=openBarcodeScanner;$("bclose").onclick=()=>$("bdlg").close();
 $("barcodePhoto").onchange=e=>{const file=e.target.files?.[0];if(file)decodeBarcodePhoto(file)};
@@ -1722,6 +1742,9 @@ $("iform").onsubmit=async e=>{
 $("pform").onsubmit=async e=>{
   e.preventDefault();
   let id=$("pid").value,key=$("pneedkey").value||"other",cfg=NEEDS[key]||NEEDS.other;
+  const existing=key!=="other"?items.find(item=>item.need_key===key&&item.id!==id):null;
+  if(existing&&!id)id=existing.id;
+  else if(existing&&id)return alert("כבר קיים מוצר מהסוג הזה במלאי. עדכנו את הרשומה הקיימת.");
   const dim=cfg.dimension_type==="none"?null:$("pdim").value;
   if(cfg.dimension_type!=="none"&&!dim)return alert(`יש לבחור ${cfg.label}.`);
   const name=key==="other"?$("pname").value.trim():cfg.name;

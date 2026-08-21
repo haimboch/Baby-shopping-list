@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v039-active-inventory-dashboard";
+const CACHE="baby-smart-v040-categorized-inventory-preferences";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{
