@@ -27,11 +27,34 @@ BRANDS = [
 
 WIPES_RE = re.compile(r"מגבונ|wet\s*wipes?|\bwipes?\b", re.I)
 DIAPERS_RE = re.compile(r"חיתול|טיטול|\bdiapers?\b|\bnapp(?:y|ies)\b", re.I)
+BABY_MARKER_RE = re.compile(
+    r"תינוק|בייבי|\bbaby\b|infants?|new\s*born|newborn|ניו\s*בורן|פעוט",
+    re.I,
+)
+BABY_WIPES_BRAND_RE = re.compile(
+    r"האגיס|huggies|פמפרס|pampers|בייבי\s*סיטר|baby\s*sitter|babysitter",
+    re.I,
+)
+ADULT_PRODUCT_RE = re.compile(
+    r"(?:ל)?מבוגר(?:ים|ות)?|\badults?\b|incontinence|דליפת\s*שתן",
+    re.I,
+)
+NON_BABY_WIPES_RE = re.compile(
+    r"רצפ|טואלט|שירותים|איפור|מסיר.{0,8}איפור|מטבח|ניקוי\s*(?:כללי|בית)|"
+    r"disinfect|make.?up|floor|toilet|kitchen",
+    re.I,
+)
 FORMULA_RE = re.compile(
     r"תמ[\"'״׳]?ל|תחליף\s*חלב|פורמולה|מזון\s+לתינוק|"
     r"מטרנה|סימילאק|נוטרילון|materna|similac|nutrilon|infant\s*formula",
     re.I,
 )
+FORMULA_EXCLUDE_RE = re.compile(
+    r"דייס|(?<![א-ת])מחי(?:ת|ות)|פאוץ|סקו{0,2}[ייו]*ז|כפית|צידנית|פדיאשור|"
+    r"pediasure|puree|cereal|\bpouch\b|\bspoon\b",
+    re.I,
+)
+BABY_BATH_OIL_BRAND_RE = re.compile(r"אמול|בלנאום|מוסטלה|mustela", re.I)
 
 # Exclusions reduce false positives such as diaper bags / diaper cream.
 DIAPER_EXCLUDE_RE = re.compile(
@@ -44,12 +67,12 @@ CHANGING_PADS_RE = re.compile(r"משטח(?:י|ים|ון)?.{0,18}החתלה|מש�
 DIAPER_BAGS_RE = re.compile(r"שקי(?:ת|ות).{0,20}(?:חיתול|טיטול|החתלה)|(?:diaper|nappy)\s*bags?", re.I)
 BATH_OIL_RE = re.compile(r"שמן.{0,18}(?:אמבט|רחצה)|(?:אמבט|רחצה).{0,18}שמן|אמול(?:\s|$)|bath\s*oil", re.I)
 BABY_LAUNDRY_RE = re.compile(r"(?:כביסה|מרכך|אבקה|ג[׳'’]?ל).{0,25}(?:תינוק|בייבי|baby)|(?:תינוק|בייבי|baby).{0,25}(?:כביסה|מרכך|אבקה)|baby.{0,12}(?:laundry|detergent|softener)", re.I)
-BABY_WASH_RE = re.compile(r"(?:סבון|שמפו|תרחיץ|אל.?סבון|קצף.{0,8}אמבט).{0,25}(?:תינוק|בייבי|ילד|baby)|(?:תינוק|בייבי|baby).{0,25}(?:סבון|שמפו|תרחיץ)|baby.{0,12}(?:wash|shampoo|soap)", re.I)
+BABY_WASH_RE = re.compile(r"(?:סבון|שמפו|תרחיץ|אל.?סבון|קצף.{0,8}אמבט).{0,25}(?:תינוק|בייבי|baby)|(?:תינוק|בייבי|baby).{0,25}(?:סבון|שמפו|תרחיץ)|baby.{0,12}(?:wash|shampoo|soap)", re.I)
 BODY_CREAM_RE = re.compile(r"(?:קרם\s*(?:גוף|לחות)|תחליב\s*(?:גוף|לחות)).{0,25}(?:תינוק|בייבי|baby)|(?:תינוק|בייבי|baby).{0,25}(?:קרם|תחליב)|baby.{0,12}(?:lotion|body\s*cream)", re.I)
 
 def classify_need(name: str) -> Optional[str]:
     s = (name or "").strip()
-    if not s:
+    if not s or ADULT_PRODUCT_RE.search(s):
         return None
     if DIAPER_CREAM_RE.search(s):
         return "diaper_cream"
@@ -57,13 +80,17 @@ def classify_need(name: str) -> Optional[str]:
         return "changing_pads"
     if DIAPER_BAGS_RE.search(s):
         return "diaper_bags"
-    if WIPES_RE.search(s):
+    if WIPES_RE.search(s) and not NON_BABY_WIPES_RE.search(s) and (
+        BABY_MARKER_RE.search(s) or BABY_WIPES_BRAND_RE.search(s)
+    ):
         return "wipes"
     if DIAPERS_RE.search(s) and not DIAPER_EXCLUDE_RE.search(s):
         return "diapers"
-    if FORMULA_RE.search(s):
+    if FORMULA_RE.search(s) and not FORMULA_EXCLUDE_RE.search(s):
         return "formula"
-    if BATH_OIL_RE.search(s):
+    if BATH_OIL_RE.search(s) and (
+        BABY_MARKER_RE.search(s) or BABY_BATH_OIL_BRAND_RE.search(s)
+    ):
         return "bath_oil"
     if BABY_LAUNDRY_RE.search(s):
         return "baby_laundry"

@@ -23,6 +23,11 @@ from .ksp import collect_ksp_official
 from .superpharm_online import collect_superpharm_online
 from .cheapersal_prices import CheaperSalPriceFallback
 from .product_types import PRODUCT_TYPES
+from .product_images import (
+    ProductImageEnricher,
+    extract_product_image,
+    image_limits_from_environment,
+)
 
 SCRAPER_TO_DB = {
     "SUPER_PHARM": "super_pharm",
@@ -44,6 +49,16 @@ CHAIN_TO_SCRAPER = {
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def positive_or_none(value: Any) -> Any | None:
+    """Keep valid positive source numbers and discard retailer zero sentinels."""
+    if value in (None, ""):
+        return None
+    try:
+        return value if float(value) > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 def csv_env(name: str, default: str) -> list[str]:
     return [x.strip() for x in os.environ.get(name, default).split(",") if x.strip()]
@@ -202,13 +217,16 @@ def merge_prices_and_promos(price_rows: list[dict[str, Any]], promos: list[dict[
         promo = pmap.get((r["source_name"], r["branch_code"], r["barcode"]))
         row = dict(r)
         if promo:
+            promo_price = positive_or_none(promo.get("promo_price"))
+            promo_total_price = positive_or_none(promo.get("promo_total_price"))
+            promo_min_quantity = positive_or_none(promo.get("promo_min_quantity")) or 1
             row.update({
-                "promo_price": promo.get("promo_price"),
+                "promo_price": promo_price,
                 "promo_description": promo.get("promo_description"),
                 "promo_start_at": normalize_timestamp(promo.get("promo_start_at")),
                 "promo_end_at": normalize_timestamp(promo.get("promo_end_at")),
-                "promo_min_quantity": promo.get("promo_min_quantity") or 1,
-                "promo_total_price": promo.get("promo_total_price"),
+                "promo_min_quantity": promo_min_quantity,
+                "promo_total_price": promo_total_price,
                 "requires_club": bool(promo.get("requires_club")),
             })
             raw = dict(row.get("raw_source") or {})
@@ -233,17 +251,17 @@ def to_db_price(row: dict[str, Any]) -> dict[str, Any]:
         "dimension_value": row.get("dimension_value"),
         "brand": row.get("brand"),
         "product_name": row.get("product_name"),
-        "package_quantity": row.get("package_quantity"),
+        "package_quantity": positive_or_none(row.get("package_quantity")),
         "package_unit": row.get("package_unit"),
         "regular_price": row["regular_price"],
-        "promo_price": row.get("promo_price"),
+        "promo_price": positive_or_none(row.get("promo_price")),
         # effective_price is a GENERATED ALWAYS column in Supabase/Postgres.
         # Do not send it on INSERT/UPSERT; the database calculates it automatically.
         "promo_description": row.get("promo_description"),
         "promo_start_at": row.get("promo_start_at"),
         "promo_end_at": row.get("promo_end_at"),
-        "promo_min_quantity": row.get("promo_min_quantity"),
-        "promo_total_price": row.get("promo_total_price"),
+        "promo_min_quantity": positive_or_none(row.get("promo_min_quantity")),
+        "promo_total_price": positive_or_none(row.get("promo_total_price")),
         "requires_club": bool(row.get("requires_club")),
         "source_updated_at": row.get("source_updated_at"),
         "last_seen_at": row.get("last_seen_at") or utcnow(),
@@ -282,7 +300,7 @@ def save_official_catalog_rows(db: SupabaseREST, prices: list[dict[str, Any]]) -
         detail = None
         if dimension_value:
             detail = ("מידה " if dimension_type == "size" else "שלב ") + str(dimension_value)
-        candidates[barcode] = {
+        candidate = {
             "barcode": barcode,
             "category": meta["category"],
             "need_name": meta["need_name"],
@@ -293,7 +311,7 @@ def save_official_catalog_rows(db: SupabaseREST, prices: list[dict[str, Any]]) -
             "brand": brand,
             "product_name": name,
             "variant": None,
-            "package_quantity": row.get("package_quantity"),
+            "package_quantity": positive_or_none(row.get("package_quantity")),
             "package_unit": row.get("package_unit") or (
                 "גרם" if need in {"formula", "diaper_cream", "body_cream"}
                 else "מ״ל" if need in {"baby_wash", "bath_oil", "baby_laundry"}
@@ -305,7 +323,19 @@ def save_official_catalog_rows(db: SupabaseREST, prices: list[dict[str, Any]]) -
                 "super_pharm": "Super-Pharm transparency",
             }.get(str(row.get("chain_id") or ""), f"{row.get('chain_id') or 'retailer'} transparency"),
             "verified_at": utcnow(),
+            "image_url": None,
+            "image_source": None,
+            "image_checked_at": None,
         }
+        raw_source = row.get("raw_source")
+        image = extract_product_image(raw_source) if isinstance(raw_source, dict) else None
+        if image:
+            candidate.update({
+                "image_url": image,
+                "image_source": "Retailer feed · verified barcode",
+                "image_checked_at": utcnow(),
+            })
+        candidates[barcode] = candidate
 
     known: set[str] = set()
     barcodes = sorted(candidates)
@@ -3308,6 +3338,28 @@ async def async_main(args):
     print("📍 target branch plan: " + json.dumps(target_plan, ensure_ascii=False))
     for scraper_name in scraper_names:
         await run_chain(scraper_name, db, args.dry_run, args.file_limit, enricher, target_plan)
+    if db and not args.dry_run:
+        image_limit, cheapersal_image_limit = image_limits_from_environment()
+        try:
+            image_stats = ProductImageEnricher(
+                db=db,
+                api_key=os.environ.get("CHEAPERSAL_API_KEY", ""),
+                limit=image_limit,
+                cheapersal_limit=cheapersal_image_limit,
+            ).enrich_missing_images()
+            print(
+                "🖼️ PRODUCT_IMAGES: "
+                f"{image_stats['saved']} verified photos saved from "
+                f"{image_stats['checked']} products checked "
+                f"({image_stats['missing']} without a verified photo)"
+            )
+            for error in image_stats["errors"][:5]:
+                print(f"::warning title=Product image lookup::{error}")
+        except Exception as exc:
+            print(
+                "::warning title=Product image enrichment::"
+                f"{type(exc).__name__}: {exc}"
+            )
 
 def main():
     parser = argparse.ArgumentParser(description="Baby price-transparency worker")

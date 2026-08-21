@@ -7,6 +7,7 @@ import requests
 
 from .classifier import classify_need, infer_brand, parse_dimension, parse_package_quantity
 from .product_types import PRODUCT_TYPES
+from .product_images import extract_product_image
 from .supabase_rest import SupabaseREST
 
 API_BASE = "https://api.cheapersal.co.il/api/v1"
@@ -110,7 +111,7 @@ class MetadataEnricher:
         if dimension_value:
             need_detail = ("מידה " if dimension_type == "size" else "שלב ") + dimension_value
 
-        return {
+        catalog = {
             "barcode": barcode,
             "category": meta["category"],
             "need_name": meta["need_name"],
@@ -131,6 +132,14 @@ class MetadataEnricher:
             "source_name": "Cheapersal metadata enrichment",
             "verified_at": utcnow(),
         }
+        image = extract_product_image(product)
+        if image:
+            catalog.update({
+                "image_url": image,
+                "image_source": "Cheapersal · verified barcode",
+                "image_checked_at": utcnow(),
+            })
+        return catalog
 
     def enrich_missing_catalog(self, price_rows: list[dict[str, Any]]) -> dict[str, Any]:
         stats: dict[str, Any] = {
