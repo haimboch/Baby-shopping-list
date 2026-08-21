@@ -9,6 +9,7 @@ from baby_worker.worker import (
     _sp_candidates_from_html,
     assess_ingestion_outcome,
     merge_prices_and_promos,
+    save_official_catalog_rows,
 )
 from baby_worker.xmlfeeds import parse_price_rows, parse_promotions, parse_stores
 
@@ -16,7 +17,28 @@ def test_classifier():
     assert classify_need("האגיס אקסטרה קר חיתולים מידה 3 40 יחידות") == "diapers"
     assert classify_need("מגבונים לחים האגיס 4x56") == "wipes"
     assert classify_need("מטרנה חלבי שלב 2 700 גרם") == "formula"
-    assert classify_need("שקיות לחיתולים מלוכלכים") is None
+    assert classify_need("שקיות לחיתולים מלוכלכים") == "diaper_bags"
+
+def test_expanded_baby_product_classifier():
+    examples = {
+        "משחת החתלה לתינוק סודוקרם 125 גרם": "diaper_cream",
+        "משטחי החתלה חד פעמיים 10 יחידות": "changing_pads",
+        "שקיות לחיתולים מלוכלכים 100 יחידות": "diaper_bags",
+        "שמן אמבט לתינוק אמול 500 מל": "bath_oil",
+        "שמפו וסבון לתינוק דוקטור פישר 700 מל": "baby_wash",
+        "קרם גוף לתינוק מוסטלה 200 גרם": "body_cream",
+        "ג׳ל כביסה לתינוק סנו מקסימה 1 ליטר": "baby_laundry",
+    }
+    for name, expected in examples.items():
+        assert classify_need(name) == expected, name
+    assert classify_need("שמפו לשיער רגיל") is None
+    assert classify_need("קרם גוף למבוגרים") is None
+
+def test_expanded_product_package_quantities():
+    assert parse_package_quantity("שמן אמבט לתינוק 500 מ״ל", "bath_oil") == (500, "מ״ל")
+    assert parse_package_quantity("ג׳ל כביסה לתינוק 1.5 ליטר", "baby_laundry") == (1500, "מ״ל")
+    assert parse_package_quantity("משחת החתלה 125 גרם", "diaper_cream") == (125, "גרם")
+    assert parse_package_quantity("משטחי החתלה 10 יחידות", "changing_pads") == (10, "יחידות")
 
 def test_dimensions():
     assert parse_dimension("פמפרס מידה 4+", "diapers") == ("size", "4+")
@@ -61,6 +83,69 @@ def test_xml_price_and_store():
     stores = parse_stores(stores_xml, "SHUFERSAL", "Stores7290027600007-20260816.xml")
     assert stores[0]["branch_code"] == "123"
     assert stores[0]["city"] == "שדרות"
+
+
+def test_xml_imports_expanded_product_categories():
+    price_xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <Root><StoreId>456</StoreId><Items>
+      <Item><ItemCode>7290000000011</ItemCode>
+        <ItemName>משחת החתלה לתינוק סודוקרם 125 גרם</ItemName>
+        <ManufacturerName>Sudocrem</ManufacturerName><ItemPrice>24.90</ItemPrice></Item>
+      <Item><ItemCode>7290000000012</ItemCode>
+        <ItemName>שמן אמבט לתינוק אמול 500 מ״ל</ItemName>
+        <ManufacturerName>Emol</ManufacturerName><ItemPrice>34.90</ItemPrice></Item>
+      <Item><ItemCode>7290000000013</ItemCode>
+        <ItemName>ג׳ל כביסה לתינוק סנו מקסימה 1 ליטר</ItemName>
+        <ManufacturerName>Sano</ManufacturerName><ItemPrice>29.90</ItemPrice></Item>
+      <Item><ItemCode>7290000000014</ItemCode>
+        <ItemName>משטחי החתלה חד פעמיים 10 יחידות</ItemName>
+        <ManufacturerName>BabySitter</ManufacturerName><ItemPrice>19.90</ItemPrice></Item>
+      <Item><ItemCode>7290000000015</ItemCode>
+        <ItemName>שמפו רגיל למבוגרים</ItemName><ItemPrice>12.90</ItemPrice></Item>
+    </Items></Root>""".encode("utf-8")
+    rows = parse_price_rows(price_xml, "RAMI_LEVY", "PriceFull7290058140886-001-456-202608210800.xml")
+    assert {row["need_key"] for row in rows} == {
+        "diaper_cream", "bath_oil", "baby_laundry", "changing_pads"
+    }
+    quantities = {row["need_key"]: row["package_quantity"] for row in rows}
+    assert quantities == {
+        "diaper_cream": 125, "bath_oil": 500, "baby_laundry": 1000,
+        "changing_pads": 10,
+    }
+
+
+def test_catalog_collects_products_from_every_supermarket():
+    class FakeDatabase:
+        def __init__(self):
+            self.saved = []
+
+        def select(self, table, params):
+            assert table == "baby_product_catalog"
+            return []
+
+        def upsert(self, table, rows, on_conflict):
+            assert table == "baby_product_catalog"
+            assert on_conflict == "barcode"
+            self.saved.extend(rows)
+
+    db = FakeDatabase()
+    rows = [
+        {"chain_id": "rami_levy", "need_key": "diaper_cream", "barcode": "7290000000011",
+         "product_name": "משחת החתלה סודוקרם 125 גרם", "brand": "Sudocrem",
+         "package_quantity": 125, "package_unit": "גרם"},
+        {"chain_id": "shufersal", "need_key": "baby_wash", "barcode": "7290000000012",
+         "product_name": "סבון לתינוק דוקטור פישר 700 מ״ל", "brand": "Dr. Fischer",
+         "package_quantity": 700, "package_unit": "מ״ל"},
+        {"chain_id": "osher_ad", "need_key": "baby_laundry", "barcode": "7290000000013",
+         "product_name": "ג׳ל כביסה לתינוק סנו 1 ליטר", "brand": "Sano",
+         "package_quantity": 1000, "package_unit": "מ״ל"},
+    ]
+    stats = save_official_catalog_rows(db, rows)
+    assert stats == {"candidates": 3, "already_known": 0, "saved": 3}
+    assert {row["need_key"] for row in db.saved} == {
+        "diaper_cream", "baby_wash", "baby_laundry"
+    }
+    assert all(row["source_name"].endswith("transparency") for row in db.saved)
 
 
 def test_multi_buy_promotion_terms():
