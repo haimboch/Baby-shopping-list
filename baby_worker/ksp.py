@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any, Iterable
@@ -482,12 +483,19 @@ def _get(
     url: str,
     *,
     params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
     timeout: int = 35,
 ) -> requests.Response:
     last_error: Exception | None = None
     for attempt in range(1, 3):
         try:
-            response = session.get(url, params=params, timeout=timeout, allow_redirects=True)
+            response = session.get(
+                url,
+                params=params,
+                headers=headers,
+                timeout=timeout,
+                allow_redirects=True,
+            )
             challenge = response.text[:4000].lower() if "text" in response.headers.get("Content-Type", "").lower() else ""
             blocked = (
                 response.status_code in (403, 429)
@@ -516,10 +524,27 @@ def _get_json(
     path: str,
     *,
     params: dict[str, Any] | None = None,
+    relay_url: str = "",
+    relay_token: str = "",
     timeout: int = 35,
 ) -> dict[str, Any]:
-    url = urljoin(f"{KSP_API_BASE}/", path.lstrip("/"))
-    response = _get(session, url, params=params, timeout=timeout)
+    relay_url = relay_url.strip().rstrip("/")
+    relay_token = relay_token.strip()
+    headers = None
+    if relay_url:
+        if not relay_token:
+            raise RuntimeError("KSP relay is configured without KSP_RELAY_TOKEN")
+        normalized = path.strip("/")
+        if normalized == "category":
+            url = f"{relay_url}/ksp/category"
+        elif re.fullmatch(r"item/\d{3,9}", normalized):
+            url = f"{relay_url}/ksp/{normalized}"
+        else:
+            raise RuntimeError(f"unsupported KSP relay path: {normalized}")
+        headers = {"Authorization": f"Bearer {relay_token}", "Accept": "application/json"}
+    else:
+        url = urljoin(f"{KSP_API_BASE}/", path.lstrip("/"))
+    response = _get(session, url, params=params, headers=headers, timeout=timeout)
     content_type = response.headers.get("Content-Type", "").lower()
     if "json" not in content_type and not response.text.lstrip().startswith(("{", "[")):
         raise RuntimeError(f"non-JSON response from {response.url}")
@@ -536,6 +561,8 @@ def collect_ksp_official(
     max_items: int = 120,
     category_pages: int = 3,
     discovery_limit: int = 80,
+    relay_url: str | None = None,
+    relay_token: str | None = None,
     session: requests.Session | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Collect KSP baby offers from public official category/search/product pages."""
@@ -546,7 +573,7 @@ def collect_ksp_official(
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 "
-                "Baby-Smart-List/0.37"
+                "Baby-Smart-List/0.38"
             ),
             "Accept": "application/json,text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "he-IL,he;q=0.9,en;q=0.6",
@@ -557,6 +584,8 @@ def collect_ksp_official(
 
     targets = catalog_targets or []
     known = known_items or []
+    relay_url = (relay_url if relay_url is not None else os.environ.get("KSP_RELAY_URL", "")).strip()
+    relay_token = (relay_token if relay_token is not None else os.environ.get("KSP_RELAY_TOKEN", "")).strip()
     url_need: dict[str, str | None] = {}
     errors: list[str] = []
     search_requests = 0
@@ -603,7 +632,13 @@ def collect_ksp_official(
             continue
         api_search_requests += 1
         try:
-            payload = _get_json(session, "category/", params={"search": barcode})
+            payload = _get_json(
+                session,
+                "category/",
+                params={"search": barcode},
+                relay_url=relay_url,
+                relay_token=relay_token,
+            )
             api_responses += 1
             candidates = _api_items(payload)
             for item in candidates:
@@ -645,7 +680,12 @@ def collect_ksp_official(
             break
         api_item_requests += 1
         try:
-            payload = _get_json(session, f"item/{item_id}")
+            payload = _get_json(
+                session,
+                f"item/{item_id}",
+                relay_url=relay_url,
+                relay_token=relay_token,
+            )
             api_responses += 1
             parsed = parse_ksp_api_product(
                 payload,
@@ -784,6 +824,8 @@ def collect_ksp_official(
         "api_item_requests": api_item_requests,
         "api_responses": api_responses,
         "api_items_parsed": api_parsed,
+        "api_transport": "cloudflare_relay" if relay_url else "direct",
+        "relay_configured": bool(relay_url and relay_token),
         "category_requests": category_requests,
         "item_urls_discovered": len(url_need),
         "item_page_attempts": item_page_attempts,
