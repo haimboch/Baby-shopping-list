@@ -1,5 +1,7 @@
 from baby_worker.classifier import classify_need, parse_dimension, parse_package_quantity
 from baby_worker.cheapersal_prices import CheaperSalPriceFallback
+from baby_worker.product_images import ProductImageEnricher, extract_product_image
+import baby_worker.product_images as product_images_module
 from baby_worker.ksp import _get_json, parse_ksp_api_product, parse_ksp_product_html
 from baby_worker.superpharm_online import (
     extract_superpharm_product_urls,
@@ -9,6 +11,7 @@ from baby_worker.worker import (
     _sp_candidates_from_html,
     assess_ingestion_outcome,
     merge_prices_and_promos,
+    to_db_price,
     save_official_catalog_rows,
 )
 from baby_worker.xmlfeeds import parse_price_rows, parse_promotions, parse_stores
@@ -33,6 +36,111 @@ def test_expanded_baby_product_classifier():
         assert classify_need(name) == expected, name
     assert classify_need("שמפו לשיער רגיל") is None
     assert classify_need("קרם גוף למבוגרים") is None
+
+
+def test_baby_only_classifier_rejects_adult_and_general_products():
+    rejected = [
+        "חיתולי לילה למבוגרים מידה L 10 יחידות",
+        "דלי מגבונים לרצפה 400 יחידות",
+        "מגבונים לחים לניקוי המטבח",
+        "מגבונים להסרת איפור",
+        "מגבונים לחים ללא שם מותג 72 יחידות",
+        "דייסת מטרנה דגנים 200 גרם",
+        "מחית מטרנה תפוח ובננה",
+        "מטרנה פאוץ פירות",
+        "כפית להכנת תמ״ל",
+        "צידנית מטרנה לבקבוק",
+        "פדיאשור פורמולה לילדים",
+        "פינוק תחליב רחצה שמן ארגן",
+        "שמן רחצה למבוגרים 500 מל",
+        "שמפו לילדים סרקל 1 ליטר",
+    ]
+    for name in rejected:
+        assert classify_need(name) is None, name
+
+    accepted = {
+        "האגיס חיתולי לילה מידה 5": "diapers",
+        "פמפרס חיתולי שחייה מידה 4": "diapers",
+        "מגבונים לחים לתינוק ללא בישום": "wipes",
+        "מגבונים לחים Huggies Natural Care": "wipes",
+        "מטרנה צמחית מגיל שנה 700 גרם": "formula",
+        "מזון לתינוקות צמחי שלב 1": "formula",
+        "שמן אמבט אמול 500 מל": "bath_oil",
+    }
+    for name, expected in accepted.items():
+        assert classify_need(name) == expected, name
+
+
+def test_verified_product_image_extraction():
+    image = "https://images.openfoodfacts.org/images/products/729/front_he.12.400.jpg"
+    assert extract_product_image({"image_url": image}) == image
+    assert extract_product_image({
+        "selected_images": {"front": {"display": {"he": image}}},
+    }) == image
+    assert extract_product_image({"product": {"images": [{"url": image}]}}) == image
+    assert extract_product_image({"image_url": "http://unsafe.example/photo.jpg"}) is None
+    assert extract_product_image({"image_url": "javascript:alert(1)"}) is None
+    assert extract_product_image({"website": image}) is None
+
+
+def test_image_enrichment_verifies_exact_barcode():
+    class FakeDatabase:
+        def __init__(self):
+            self.patches = []
+
+        def select(self, table, params):
+            if table == "products":
+                return [{"preferred_barcode": "7290000000011"}]
+            assert table == "baby_product_catalog"
+            return [{"barcode": "7290000000011", "need_key": "diapers"}]
+
+        def patch(self, table, filters, row):
+            self.patches.append((table, filters, row))
+
+    db = FakeDatabase()
+    enricher = ProductImageEnricher(db, limit=1, cheapersal_limit=0)
+    enricher._fetch_open_product_image = lambda barcode: (
+        "https://images.openfoodfacts.org/images/products/729/front.jpg"
+    )
+    stats = enricher.enrich_missing_images()
+    assert stats["checked"] == 1
+    assert stats["saved"] == 1
+    assert db.patches[0][1] == {"barcode": "7290000000011"}
+    assert db.patches[0][2]["image_source"] == "Open Products Facts · verified barcode"
+
+
+def test_product_photo_is_rejected_when_barcode_does_not_match():
+    class FakeResponse:
+        status_code = 200
+        ok = True
+
+        def __init__(self, actual_barcode):
+            self.actual_barcode = actual_barcode
+
+        def json(self):
+            return {
+                "product": {
+                    "code": self.actual_barcode,
+                    "image_front_url": "https://images.example.test/baby-product.jpg",
+                },
+            }
+
+    enricher = ProductImageEnricher(object(), limit=1, cheapersal_limit=0)
+    original_get = product_images_module.requests.get
+    try:
+        product_images_module.requests.get = lambda *args, **kwargs: FakeResponse(
+            "7290000000099"
+        )
+        assert enricher._fetch_open_product_image("7290000000011") is None
+
+        product_images_module.requests.get = lambda *args, **kwargs: FakeResponse(
+            "7290000000011"
+        )
+        assert enricher._fetch_open_product_image("7290000000011") == (
+            "https://images.example.test/baby-product.jpg"
+        )
+    finally:
+        product_images_module.requests.get = original_get
 
 def test_expanded_product_package_quantities():
     assert parse_package_quantity("שמן אמבט לתינוק 500 מ״ל", "bath_oil") == (500, "מ״ל")
@@ -146,6 +254,33 @@ def test_catalog_collects_products_from_every_supermarket():
         "diaper_cream", "baby_wash", "baby_laundry"
     }
     assert all(row["source_name"].endswith("transparency") for row in db.saved)
+
+
+def test_zero_source_numbers_are_safely_sanitized():
+    base = {
+        "source_name": "RAMI_LEVY", "subchain_id": None, "branch_code": "003",
+        "barcode": "8435495819363", "need_key": "baby_laundry",
+        "dimension_type": "none", "dimension_value": None, "brand": "Test",
+        "product_name": "חומר כביסה לתינוק", "package_quantity": 0,
+        "package_unit": "יחידות", "regular_price": 17.9,
+        "promo_price": 0, "promo_min_quantity": 0, "promo_total_price": 0,
+        "requires_club": False, "source_updated_at": None, "raw_source": {},
+    }
+    row = to_db_price(base)
+    assert row["package_quantity"] is None
+    assert row["promo_price"] is None
+    assert row["promo_min_quantity"] is None
+    assert row["promo_total_price"] is None
+
+    merged = merge_prices_and_promos([base], [{
+        "source_name": "RAMI_LEVY", "branch_code": "003",
+        "barcode": "8435495819363", "promo_price": 0,
+        "promo_min_quantity": 0, "promo_total_price": 0,
+        "promo_description": "רשומת אפס", "requires_club": False,
+    }])
+    assert merged[0]["promo_price"] is None
+    assert merged[0]["promo_min_quantity"] == 1
+    assert merged[0]["promo_total_price"] is None
 
 
 def test_multi_buy_promotion_terms():
