@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.40</title>
+<title>Baby Smart List · Dashboard v0.41</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -294,6 +294,13 @@ body{color:var(--ink)}
     </section>
   </section>
 
+  <section class="app-page hidden" id="productPricesPage">
+    <div class="page-head"><button class="back-button" data-back-dashboard aria-label="חזרה למלאי">→</button><div class="page-head-copy"><small id="pricesLocation">השוואת מחירים באזור שלך</small><h1 id="pricesTitle">חיפוש מוצר</h1><p id="pricesSubtitle"></p></div></div>
+    <div id="pricesNotice"></div>
+    <section class="dashboard-section"><div class="dashboard-section-head"><div><h2>⭐ היצרן המועדף</h2><p>מהמחיר הנמוך לגבוה</p></div></div><div id="preferredPrices" class="catalog-list"></div></section>
+    <section class="dashboard-section"><div class="dashboard-section-head"><div><h2>🔄 יצרנים אחרים</h2><p>מוצרים מתאימים באותה מידה או באותו שלב</p></div></div><div id="alternativePrices" class="catalog-list"></div></section>
+  </section>
+
   <section class="app-page hidden" id="categoryPage">
     <div class="page-head"><button class="back-button" data-back-dashboard aria-label="חזרה לדף הראשי">→</button><div class="page-head-copy"><small>קטגוריה</small><h1 id="categoryTitle">קטגוריה</h1><p id="categorySubtitle"></p></div></div>
     <div class="subcategory-grid" id="subcategoryGrid"></div>
@@ -335,7 +342,7 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.40</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.41</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 </div>
 
@@ -643,7 +650,7 @@ function subTrackedItems(key){
 }
 function subCatalogRows(key){return catalog.filter(p=>p.need_key===key&&p.active!==false)}
 function appPage(id){
-  ["dashboardPage","categoryPage","catalogPage","inventoryWorkspace"].forEach(x=>$(x).classList.toggle("hidden",x!==id));
+  ["dashboardPage","categoryPage","catalogPage","inventoryWorkspace","productPricesPage"].forEach(x=>$(x).classList.toggle("hidden",x!==id));
   $("add").classList.toggle("dashboard-hidden",id!=="inventoryWorkspace");
   window.scrollTo({top:0,behavior:"smooth"})
 }
@@ -667,7 +674,7 @@ function renderDashboard(){
     const brands=[...new Set(rows.map(row=>String(row.brand||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"he"));
     const dimensions=config.dimension_type!=="none"?`<label style="display:grid;gap:4px;font-size:.72rem;color:var(--muted)">${esc(config.label)}<select data-inventory-dimension="${p.id}" style="min-height:38px;border:1px solid var(--line);border-radius:9px;padding:5px">${config.values.map(value=>`<option value="${esc(value)}" ${String(p.dimension_value)===value?"selected":""}>${esc(config.label)} ${esc(value)}</option>`).join("")}</select></label>`:"";
     const brand=`<label style="display:grid;gap:4px;font-size:.72rem;color:var(--muted)">יצרן<select data-inventory-brand="${p.id}" style="min-height:38px;border:1px solid var(--line);border-radius:9px;padding:5px"><option value="">${brands.length?"בחרו יצרן":"אין יצרנים במאגר"}</option>${brands.map(value=>`<option value="${esc(value)}" ${selected?.brand===value?"selected":""}>${esc(value)}</option>`).join("")}</select></label>`;
-    return `<article class="product" style="background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px"><div class="ph"><h3>${esc(p.name)}</h3><span style="font-weight:800;color:${S[p.stock_status]?.[2]||S.ok[2]}">${S[p.stock_status]?.[1]||"🟢"}</span></div><div style="display:grid;grid-template-columns:${dimensions?"1fr 1fr":"1fr"};gap:9px;margin-top:10px">${dimensions}${brand}</div><div class="statuses" style="grid-template-columns:repeat(3,1fr)">${[["ok","🟢","יש"],["low","🟠","עומד להיגמר"],["out","🔴","חסר"]].map(([key,icon,text])=>`<button class="sbtn ${current===key?"cur":""}" data-dashboard-status="${key}" data-product-id="${p.id}" data-s="${key}">${icon} ${text}</button>`).join("")}</div></article>`
+    return `<article class="product" style="background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px"><div class="ph"><h3>${esc(p.name)}</h3><span style="font-weight:800;color:${S[p.stock_status]?.[2]||S.ok[2]}">${S[p.stock_status]?.[1]||"🟢"}</span></div><div style="display:grid;grid-template-columns:${dimensions?"1fr 1fr":"1fr"};gap:9px;margin-top:10px">${dimensions}${brand}</div><div class="statuses" style="grid-template-columns:repeat(3,1fr)">${[["ok","🟢","יש"],["low","🟠","עומד להיגמר"],["out","🔴","חסר"]].map(([key,icon,text])=>`<button class="sbtn ${current===key?"cur":""}" data-dashboard-status="${key}" data-product-id="${p.id}" data-s="${key}">${icon} ${text}</button>`).join("")}</div><button class="btn primary" style="width:100%;margin-top:10px;min-height:42px" data-inventory-search="${p.id}">🔎 חיפוש מוצר והשוואת מחירים</button></article>`
   }).join("")}</section>`).join(""):`<div style="background:#fff;border:1px dashed var(--line);border-radius:16px;padding:22px;text-align:center;color:var(--muted)">עדיין אין מוצרים במלאי. הוסיפו מוצר דרך הקטגוריות או הברקוד.</div>`;
   const cats=dashboardCategories();
   $("categoryGrid").innerHTML=cats.map(c=>{
@@ -1553,6 +1560,26 @@ async function comparePrices(id){
   };
   renderComparison();
 }
+async function openProductPrices(id){
+  const product=items.find(item=>item.id===id);if(!product)return;
+  $("pricesTitle").textContent=product.name;
+  $("pricesSubtitle").textContent=product.need_detail||"השוואת מחירים לפי העדפות המוצר";
+  $("pricesLocation").textContent=`📍 ${household?.city||"האזור שלך"} · ${household?.search_radius_km||10} ק״מ`;
+  $("pricesNotice").innerHTML="";$("preferredPrices").innerHTML='<div class="loading">מחפשים מחירים באזור שלך…</div>';$("alternativePrices").innerHTML="";
+  appPage("productPricesPage");
+  await comparePrices(id);
+  if($("cdlg").open)$("cdlg").close();
+  if(!lastCompare){$("preferredPrices").innerHTML='<div class="empty">לא הצלחנו לטעון מחירים למוצר.</div>';return}
+  const preferredCatalog=catalog.find(row=>String(row.barcode)===String(product.preferred_barcode||""));
+  const preferredBrand=preferredCatalog?.brand||lastCompare.preferred_best?.brand||null;
+  const rows=[...(lastCompare.results||[])].sort((a,b)=>a.effective_price-b.effective_price);
+  const preferred=preferredBrand?rows.filter(row=>row.brand===preferredBrand):rows.filter(row=>row.preferred);
+  const alternatives=preferredBrand?rows.filter(row=>row.brand!==preferredBrand):rows.filter(row=>!row.preferred);
+  const rowHtml=(row,index)=>`<article class="catalog-card"><div class="ph"><div><h3>${index===0?"🏆 ":""}${esc(row.chain)}</h3><div class="brand-line">${esc(row.brand)} · ${esc(row.product_name||product.name)}</div><div class="meta">${esc(row.branch||"")}${Number.isFinite(row.distance_km)?` · ${row.distance_km.toFixed(1)} ק״מ`:""}</div></div><b style="font-size:1.05rem;color:var(--ok)">${formatMoney(row.effective_price)}</b></div><div class="catalog-tags">${Number.isFinite(row.score)?`<span class="catalog-tag">${Number(row.score).toFixed(2)} ₪ ${esc(row.normalized_unit_label||"")}</span>`:""}${row.promo_description?`<span class="catalog-tag">🏷️ ${esc(row.promo_description)}</span>`:""}</div></article>`;
+  $("preferredPrices").innerHTML=preferred.length?preferred.map(rowHtml).join(""):`<div class="empty">${preferredBrand?"לא נמצאו כרגע מחירים ליצרן המועדף באזור שלך.":"בחרו יצרן מועדף בכרטיס המוצר כדי להציג כאן את המחירים שלו."}</div>`;
+  $("alternativePrices").innerHTML=alternatives.length?alternatives.map(rowHtml).join(""):'<div class="empty">לא נמצאו כרגע יצרנים חלופיים באזור שלך.</div>';
+  if(preferred.length&&alternatives.length&&alternatives[0].effective_price<preferred[0].effective_price){const savings=preferred[0].effective_price-alternatives[0].effective_price;$("pricesNotice").innerHTML=`<div class="msg" style="margin-top:12px"><b>💡 כדאי לשים לב:</b> ${esc(alternatives[0].brand)} זול יותר ב־${formatMoney(savings)} מהמוצר של ${esc(preferredBrand||preferred[0].brand)}.</div>`}
+}
 function renderComparison(){
   const data=lastCompare;if(!data)return;
   const results=data.results||[];
@@ -1693,7 +1720,7 @@ $("catalogProducts").onclick=e=>{
   const manual=e.target.closest("[data-add-manual]");if(manual){openNeed();if(NEEDS[activeSubcategory]){$("pneedkey").value=activeSubcategory;syncNeedForm(false)}else{$("pneedkey").value="other";syncNeedForm(false);$("pname").value=subcategoryDefinition(activeCategory,activeSubcategory).name}return}
 };
 document.querySelectorAll("[data-back-dashboard]").forEach(b=>b.onclick=openDashboard);
-$("dashboardInventory").onclick=e=>{const button=e.target.closest("[data-dashboard-status]");if(button)return status(button.dataset.productId,button.dataset.dashboardStatus)};
+$("dashboardInventory").onclick=e=>{const search=e.target.closest("[data-inventory-search]");if(search)return openProductPrices(search.dataset.inventorySearch);const button=e.target.closest("[data-dashboard-status]");if(button)return status(button.dataset.productId,button.dataset.dashboardStatus)};
 $("dashboardInventory").onchange=async e=>{
   const dimension=e.target.closest("[data-inventory-dimension]");
   const brand=e.target.closest("[data-inventory-brand]");
