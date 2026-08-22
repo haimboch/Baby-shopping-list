@@ -83,6 +83,7 @@ class ProductImageEnricher:
             {
                 "select": "preferred_barcode",
                 "preferred_barcode": "not.is.null",
+                "is_active": "eq.true",
                 "limit": "250",
             },
         )
