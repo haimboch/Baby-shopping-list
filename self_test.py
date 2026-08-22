@@ -24,6 +24,13 @@ from tests.test_mvp_v046_contract import (
     test_v046_frontend_enforces_trustworthy_basket_rules,
     test_v046_sql_view_has_explicit_api_grant_and_invoker_security,
 )
+from tests.test_v047_contract import (
+    test_v047_family_choice_and_visible_names,
+    test_v047_formula_requires_a_brand_without_automatic_substitution,
+    test_v047_inventory_preserves_purchase_history,
+    test_v047_partial_baskets_and_savings_are_visible,
+    test_v047_sql_is_secure_and_non_destructive,
+)
 
 for fn in (
     test_classifier, test_expanded_baby_product_classifier,
@@ -48,6 +55,11 @@ for fn in (
     test_cheapersal_price_fallback_normalizes_matching_chain,
     test_v046_frontend_enforces_trustworthy_basket_rules,
     test_v046_sql_view_has_explicit_api_grant_and_invoker_security,
+    test_v047_inventory_preserves_purchase_history,
+    test_v047_formula_requires_a_brand_without_automatic_substitution,
+    test_v047_partial_baskets_and_savings_are_visible,
+    test_v047_family_choice_and_visible_names,
+    test_v047_sql_is_secure_and_non_destructive,
 ):
     fn()
     print(f"✅ {fn.__name__}")
