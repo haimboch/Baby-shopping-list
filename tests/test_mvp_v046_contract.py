@@ -8,9 +8,9 @@ def test_v046_frontend_enforces_trustworthy_basket_rules():
     source = (ROOT / "index.html").read_text(encoding="utf-8")
 
     assert 'const PRICE_STALE_HOURS=36;' in source
-    assert '&&priceFreshness(r).eligible' in source
+    assert 'priceFreshness(row).eligible' in source
     assert 'key==="other"||key==="formula"?false:$("pallow").checked' in source
-    assert 'product.need_key!=="formula"&&product.allow_alternatives!==false' in source
+    assert 'product.need_key!=="formula"&&product.preferred_barcode' in source
     assert 'baby_mvp_data_health_v046' in source
     assert 'id="mvpReadiness"' in source
 
