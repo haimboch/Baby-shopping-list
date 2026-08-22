@@ -59,6 +59,9 @@ jobs:
       - name: Self test
         run: python self_test.py
 
+      - name: Validate shopping basket behavior
+        run: node tests/v047_frontend_harness.mjs
+
       - name: Update price feeds
         shell: bash
         run: |
