@@ -1,1 +1,14 @@
-
+{
+  "name": "baby-smart-ksp-relay",
+  "version": "0.49.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/index.js && node --test test/relay.test.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.102.0"
+  }
+}
