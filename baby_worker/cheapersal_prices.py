@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ from .classifier import (
 )
 from .enrichment import API_BASE
 from .product_types import SUPPORTED_PRODUCT_TYPES
+from .rate_limit import record_call, retry_after_seconds, wait_for_slot
 
 
 CHAIN_MATCHERS = {
@@ -196,37 +198,127 @@ def _branch_row(requested_chain: str, price: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class CheaperSalPriceFallback:
-    def __init__(self, api_key: str, *, limit: int = 18, online: bool = True):
+class CheaperSalPriceClient:
+    """One shared, cached and rate-limited price client for the whole worker run."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        limit: int = 48,
+        online: bool = False,
+        minimum_interval: float = 7.0,
+        max_rate_retries: int = 1,
+    ):
         self.api_key = (api_key or "").strip()
         self.remaining = max(0, int(limit))
-        self.online = online
-        self._last_call_monotonic: float | None = None
+        self.online = bool(online)
+        self.minimum_interval = max(0.0, float(minimum_interval))
+        self.max_rate_retries = max(0, int(max_rate_retries))
+        self.cache: dict[str, dict[str, Any] | None] = {}
+        self.failures: dict[str, str] = {}
+        self.network_requests = 0
+        self.cache_hits = 0
+        self.cached_error_hits = 0
+        self.rate_limit_waits = 0
+        self.provider_retries = 0
+
+    def can_lookup(self, barcode: str) -> bool:
+        return bool(
+            self.api_key
+            and (barcode in self.cache or barcode in self.failures or self.remaining > 0)
+        )
+
+    def snapshot(self) -> dict[str, int]:
+        return {
+            "network_requests": self.network_requests,
+            "cache_hits": self.cache_hits,
+            "cached_error_hits": self.cached_error_hits,
+            "rate_limit_waits": self.rate_limit_waits,
+            "provider_retries": self.provider_retries,
+        }
+
+    def _request(self, barcode: str):
+        if self.remaining <= 0:
+            raise RuntimeError("shared CheaperSal request budget exhausted")
+        waited = wait_for_slot("cheapersal", self.minimum_interval)
+        if waited > 0:
+            self.rate_limit_waits += 1
+        # Consume the budget before the network call so timeouts cannot create
+        # unlimited attempts (the v0.48 behavior that exceeded the limit).
+        self.remaining -= 1
+        self.network_requests += 1
+        try:
+            return requests.get(
+                f"{API_BASE}/products/{barcode}/prices",
+                params={"online": "true"} if self.online else None,
+                headers={"X-API-Key": self.api_key},
+                timeout=35,
+            )
+        finally:
+            record_call("cheapersal")
+
+    def get_prices(self, barcode: str) -> dict[str, Any] | None:
+        if barcode in self.cache:
+            self.cache_hits += 1
+            return self.cache[barcode]
+        if barcode in self.failures:
+            self.cached_error_hits += 1
+            raise RuntimeError(f"cached lookup failure: {self.failures[barcode]}")
+        if not self.api_key:
+            return None
+
+        try:
+            for attempt in range(self.max_rate_retries + 1):
+                response = self._request(barcode)
+                if response.status_code == 429 and attempt < self.max_rate_retries and self.remaining > 0:
+                    self.provider_retries += 1
+                    self.rate_limit_waits += 1
+                    time.sleep(retry_after_seconds(response))
+                    continue
+                if response.status_code == 404:
+                    self.cache[barcode] = None
+                    return None
+                if not response.ok:
+                    raise RuntimeError(
+                        f"CheaperSal {response.status_code}: {response.text[:400]}"
+                    )
+                payload = response.json()
+                data = payload.get("data") if payload.get("success") else None
+                normalized = data if isinstance(data, dict) else None
+                self.cache[barcode] = normalized
+                return normalized
+            return None
+        except Exception as exc:
+            self.failures[barcode] = f"{type(exc).__name__}: {str(exc)[:240]}"
+            raise
+
+
+class CheaperSalPriceFallback:
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        limit: int = 18,
+        online: bool = True,
+        client: CheaperSalPriceClient | None = None,
+    ):
+        self.client = client or CheaperSalPriceClient(
+            api_key,
+            limit=limit,
+            online=online,
+            minimum_interval=float(os.environ.get("CHEAPERSAL_MIN_INTERVAL_SECONDS", "7")),
+            max_rate_retries=int(os.environ.get("CHEAPERSAL_MAX_RATE_RETRIES", "1")),
+        )
+        self.api_key = self.client.api_key
+        self.online = self.client.online
+
+    @property
+    def remaining(self) -> int:
+        return self.client.remaining
 
     def _get_prices(self, barcode: str) -> dict[str, Any] | None:
-        if not self.api_key or self.remaining <= 0:
-            return None
-        if self._last_call_monotonic is not None:
-            elapsed = time.monotonic() - self._last_call_monotonic
-            if elapsed < 6.2:
-                time.sleep(6.2 - elapsed)
-        response = requests.get(
-            f"{API_BASE}/products/{barcode}/prices",
-            params={"online": "true"} if self.online else None,
-            headers={"X-API-Key": self.api_key},
-            timeout=35,
-        )
-        self._last_call_monotonic = time.monotonic()
-        self.remaining -= 1
-        if response.status_code == 404:
-            return None
-        if not response.ok:
-            raise RuntimeError(f"CheaperSal {response.status_code}: {response.text[:400]}")
-        payload = response.json()
-        if not payload.get("success"):
-            return None
-        data = payload.get("data")
-        return data if isinstance(data, dict) else None
+        return self.client.get_prices(barcode)
 
     def collect(
         self,
@@ -240,7 +332,7 @@ class CheaperSalPriceFallback:
         errors: list[str] = []
         matched = 0
 
-        if not self.api_key or self.remaining <= 0:
+        if not self.api_key:
             reason = "no_api_key_or_budget"
             return self._empty_pass(requested_chain, reason), {
                 "fallback_used": False,
@@ -251,14 +343,15 @@ class CheaperSalPriceFallback:
                 "errors": [],
             }
 
+        before = self.client.snapshot()
         seen: set[str] = set()
         for target in catalog_targets:
-            if self.remaining <= 0:
-                break
             barcode = _barcode(target.get("barcode"))
             need_key = _clean(target.get("need_key"))
             if not barcode or barcode in seen or need_key not in SUPPORTED_PRODUCT_TYPES:
                 continue
+            if not self.client.can_lookup(barcode):
+                break
             seen.add(barcode)
             attempted += 1
             try:
@@ -305,6 +398,7 @@ class CheaperSalPriceFallback:
             "sample_files": sorted(seen)[:12],
             "price_schema_diagnostics": [],
         }
+        after = self.client.snapshot()
         stats = {
             "source": API_BASE,
             "fallback_used": True,
@@ -314,6 +408,12 @@ class CheaperSalPriceFallback:
             "baby_prices": len(prices),
             "active_promotions": len(promos),
             "remaining_budget": self.remaining,
+            "network_requests": after["network_requests"] - before["network_requests"],
+            "cache_hits": after["cache_hits"] - before["cache_hits"],
+            "cached_error_hits": after["cached_error_hits"] - before["cached_error_hits"],
+            "rate_limit_waits": after["rate_limit_waits"] - before["rate_limit_waits"],
+            "provider_retries": after["provider_retries"] - before["provider_retries"],
+            "shared_cache_entries": len(self.client.cache),
             "errors": errors[:12],
         }
         return result, stats

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -12,6 +11,7 @@ from urllib.parse import urlparse
 import requests
 
 from .supabase_rest import SupabaseREST
+from .rate_limit import record_call, wait_for_slot
 
 
 OPEN_PRODUCT_API = "https://world.openfoodfacts.org/api/v3/product"
@@ -66,7 +66,6 @@ class ProductImageEnricher:
         self.api_key = str(api_key or "").strip()
         self.limit = max(0, int(limit))
         self.cheapersal_remaining = max(0, int(cheapersal_limit))
-        self._last_cheapersal_call: float | None = None
 
     def _missing_catalog(self) -> list[dict[str, Any]]:
         retry_before = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
@@ -134,17 +133,19 @@ class ProductImageEnricher:
     def _fetch_cheapersal_image(self, barcode: str) -> str | None:
         if not self.api_key or self.cheapersal_remaining <= 0:
             return None
-        if self._last_cheapersal_call is not None:
-            elapsed = time.monotonic() - self._last_cheapersal_call
-            if elapsed < 6.2:
-                time.sleep(6.2 - elapsed)
-        response = requests.get(
-            f"{CHEAPERSAL_API}/{barcode}",
-            headers={"X-API-Key": self.api_key, "Accept": "application/json"},
-            timeout=20,
+        wait_for_slot(
+            "cheapersal",
+            float(os.environ.get("CHEAPERSAL_MIN_INTERVAL_SECONDS", "7")),
         )
-        self._last_cheapersal_call = time.monotonic()
         self.cheapersal_remaining -= 1
+        try:
+            response = requests.get(
+                f"{CHEAPERSAL_API}/{barcode}",
+                headers={"X-API-Key": self.api_key, "Accept": "application/json"},
+                timeout=20,
+            )
+        finally:
+            record_call("cheapersal")
         if response.status_code in (404, 410):
             return None
         if not response.ok:

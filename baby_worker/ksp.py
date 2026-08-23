@@ -16,6 +16,7 @@ from .classifier import (
     parse_dimension,
     parse_package_quantity,
 )
+from .product_types import SUPPORTED_PRODUCT_TYPES
 
 
 KSP_BASE_URL = "https://ksp.co.il"
@@ -151,7 +152,7 @@ def parse_ksp_api_product(
     if expected_need and detected_need != expected_need:
         return None
     need_key = expected_need or detected_need
-    if need_key not in KSP_CATEGORY_PATHS:
+    if need_key not in SUPPORTED_PRODUCT_TYPES:
         return None
 
     barcode = _find_api_barcode(payload) or _barcode(expected_barcode)
@@ -357,7 +358,7 @@ def parse_ksp_product_html(
     if expected_need and detected_need != expected_need:
         return None
     need_key = expected_need or detected_need
-    if need_key not in KSP_CATEGORY_PATHS:
+    if need_key not in SUPPORTED_PRODUCT_TYPES:
         return None
 
     offer_objects: list[dict[str, Any]] = []
@@ -505,11 +506,30 @@ def _get(
             )
             if response.ok and not blocked:
                 return response
-            last_error = RuntimeError(f"HTTP {response.status_code} from {response.url}")
+            detail = ""
+            try:
+                payload = response.json()
+                if isinstance(payload, dict):
+                    error = str(payload.get("error") or "").strip()
+                    upstream_status = payload.get("upstream_status")
+                    if response.status_code == 401 and error.lower() == "unauthorized" and upstream_status is None:
+                        detail = "relay authorization rejected; compare Cloudflare RELAY_TOKEN with GitHub KSP_RELAY_TOKEN"
+                    elif upstream_status is not None:
+                        detail = f"KSP upstream status={upstream_status}; {error}".strip("; ")
+                    elif error:
+                        detail = error
+            except (TypeError, ValueError):
+                detail = ""
+            suffix = f" ({detail[:260]})" if detail else ""
+            last_error = RuntimeError(
+                f"HTTP {response.status_code} from {response.url}{suffix}"
+            )
         except Exception as exc:  # pragma: no cover - network behavior
             last_error = exc
         # Retrying the same WAF denial only makes a run slower and noisier.
-        if isinstance(last_error, RuntimeError) and "HTTP 403" in str(last_error):
+        if isinstance(last_error, RuntimeError) and any(
+            marker in str(last_error) for marker in ("HTTP 401", "HTTP 403")
+        ):
             break
         if attempt < 2:
             import time
@@ -573,7 +593,7 @@ def collect_ksp_official(
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 "
-                "Baby-Smart-List/0.38"
+                "Baby-Smart-List/0.49"
             ),
             "Accept": "application/json,text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "he-IL,he;q=0.9,en;q=0.6",
@@ -628,7 +648,7 @@ def collect_ksp_official(
             break
         barcode = _barcode(target.get("barcode"))
         need_key = str(target.get("need_key") or "").strip() or None
-        if not barcode or need_key not in KSP_CATEGORY_PATHS:
+        if not barcode or need_key not in SUPPORTED_PRODUCT_TYPES:
             continue
         api_search_requests += 1
         try:
@@ -826,6 +846,9 @@ def collect_ksp_official(
         "api_items_parsed": api_parsed,
         "api_transport": "cloudflare_relay" if relay_url else "direct",
         "relay_configured": bool(relay_url and relay_token),
+        "relay_auth_failed": any(
+            "relay authorization rejected" in error for error in errors
+        ),
         "category_requests": category_requests,
         "item_urls_discovered": len(url_need),
         "item_page_attempts": item_page_attempts,

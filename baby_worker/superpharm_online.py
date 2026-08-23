@@ -15,6 +15,7 @@ from .classifier import (
     parse_dimension,
     parse_package_quantity,
 )
+from .product_types import SUPPORTED_PRODUCT_TYPES
 
 
 SP_SHOP_BASE_URL = "https://shop.super-pharm.co.il"
@@ -24,6 +25,9 @@ SP_CATEGORY_PATHS = {
     "wipes": "/infants-and-toddlers/diapering/wet-wipes/c/25112000",
     "formula": "/infants-and-toddlers/nursing-and-feeding/baby-formulas/c/25122800",
 }
+SP_DISCOVERY_ROOTS = (
+    "/infants-and-toddlers/c/25110000",
+)
 
 # These official product pages keep the fallback useful when category pages are
 # temporarily challenged. Category discovery expands beyond this small seed.
@@ -188,6 +192,31 @@ def extract_superpharm_product_urls(page_html: str) -> list[str]:
     return paths
 
 
+def extract_superpharm_category_urls(page_html: str) -> list[tuple[str, str]]:
+    """Discover supported baby categories from official navigation anchors."""
+    found: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    anchor_re = re.compile(
+        r"<a\b[^>]*href=[\"'](?P<href>[^\"']+/c/\d+[^\"']*)[\"'][^>]*>"
+        r"(?P<label>.*?)</a>",
+        re.I | re.S,
+    )
+    for match in anchor_re.finditer(page_html or ""):
+        label = _clean_text(match.group("label"))
+        need_key = classify_need(label)
+        if need_key not in SUPPORTED_PRODUCT_TYPES:
+            continue
+        parsed = urlparse(urljoin(SP_SHOP_BASE_URL, html.unescape(match.group("href"))))
+        if parsed.netloc.lower() != urlparse(SP_SHOP_BASE_URL).netloc:
+            continue
+        canonical = f"{SP_SHOP_BASE_URL}{parsed.path}"
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        found.append((need_key, canonical))
+    return found
+
+
 def parse_superpharm_product_html(
     page_html: str,
     product_url: str,
@@ -228,7 +257,7 @@ def parse_superpharm_product_html(
     if expected_need and need_key != expected_need:
         return None
     need_key = expected_need or need_key
-    if need_key not in SP_CATEGORY_PATHS:
+    if need_key not in SUPPORTED_PRODUCT_TYPES:
         return None
 
     offers: list[dict[str, Any]] = []
@@ -401,6 +430,10 @@ def collect_superpharm_online(
     errors: list[str] = []
     category_pages_attempted = 0
     category_pages_fetched = 0
+    category_urls: dict[str, str] = {
+        urljoin(SP_SHOP_BASE_URL, path): need_key
+        for need_key, path in SP_CATEGORY_PATHS.items()
+    }
 
     def add_url(raw_url: str, need_key: str | None) -> None:
         parsed = urlparse(urljoin(SP_SHOP_BASE_URL, raw_url))
@@ -416,13 +449,23 @@ def collect_superpharm_online(
     for need_key, seed_url in SP_SEED_PRODUCTS:
         add_url(seed_url, need_key)
 
-    for need_key, path in SP_CATEGORY_PATHS.items():
+    for root in SP_DISCOVERY_ROOTS:
+        category_pages_attempted += 1
+        try:
+            response = _get(session, urljoin(SP_SHOP_BASE_URL, root))
+            category_pages_fetched += 1
+            for need_key, category_url in extract_superpharm_category_urls(response.text):
+                category_urls.setdefault(category_url, need_key)
+        except Exception as exc:  # pragma: no cover - network behavior
+            errors.append(f"category discovery root: {type(exc).__name__}: {exc}")
+
+    for category_url, need_key in category_urls.items():
         for page in range(max(1, category_pages)):
             if len(url_need) >= max_items:
                 break
             category_pages_attempted += 1
             try:
-                response = _get(session, urljoin(SP_SHOP_BASE_URL, path), params={"page": page})
+                response = _get(session, category_url, params={"page": page})
                 category_pages_fetched += 1
                 found = extract_superpharm_product_urls(response.text)
                 for item_url in found:
@@ -487,6 +530,8 @@ def collect_superpharm_online(
         "fallback_used": True,
         "category_pages_attempted": category_pages_attempted,
         "category_pages_fetched": category_pages_fetched,
+        "category_urls_discovered": len(category_urls),
+        "category_needs_discovered": sorted(set(category_urls.values())),
         "product_urls_discovered": len(url_need),
         "product_pages_attempted": product_pages_attempted,
         "product_pages_fetched": product_pages_fetched,

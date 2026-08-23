@@ -10,7 +10,7 @@ import sys
 import traceback
 from urllib.parse import unquote, urlparse, urljoin
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -21,7 +21,7 @@ from .supabase_rest import SupabaseREST
 from .enrichment import MetadataEnricher
 from .ksp import collect_ksp_official
 from .superpharm_online import collect_superpharm_online
-from .cheapersal_prices import CheaperSalPriceFallback
+from .cheapersal_prices import CheaperSalPriceClient, CheaperSalPriceFallback
 from .product_types import PRODUCT_TYPES
 from .product_images import (
     ProductImageEnricher,
@@ -338,19 +338,37 @@ def save_official_catalog_rows(db: SupabaseREST, prices: list[dict[str, Any]]) -
         candidates[barcode] = candidate
 
     known: set[str] = set()
+    known_images: dict[str, str | None] = {}
     barcodes = sorted(candidates)
     for i in range(0, len(barcodes), 40):
         chunk = barcodes[i:i + 40]
         for row in db.select(
             "baby_product_catalog",
-            {"select": "barcode", "barcode": f"in.({','.join(chunk)})"},
+            {"select": "barcode,image_url", "barcode": f"in.({','.join(chunk)})"},
         ):
             if row.get("barcode"):
-                known.add(str(row["barcode"]))
+                barcode = str(row["barcode"])
+                known.add(barcode)
+                known_images[barcode] = str(row.get("image_url") or "").strip() or None
     new_rows = [row for barcode, row in candidates.items() if barcode not in known]
     if new_rows:
         db.upsert("baby_product_catalog", new_rows, "barcode")
-    return {"candidates": len(candidates), "already_known": len(known), "saved": len(new_rows)}
+    images_saved = 0
+    for barcode, candidate in candidates.items():
+        if barcode not in known or known_images.get(barcode) or not candidate.get("image_url"):
+            continue
+        db.patch("baby_product_catalog", {"barcode": barcode}, {
+            "image_url": candidate["image_url"],
+            "image_source": candidate["image_source"],
+            "image_checked_at": candidate["image_checked_at"],
+        })
+        images_saved += 1
+    return {
+        "candidates": len(candidates),
+        "already_known": len(known),
+        "saved": len(new_rows),
+        "images_saved": images_saved,
+    }
 
 
 def _norm_place(value: Any) -> str:
@@ -383,10 +401,175 @@ def _strong_branch_city_match(branch_name: Any, city: Any) -> bool:
 def _is_numeric_city(value: Any) -> bool:
     return bool(re.fullmatch(r"\d+", _norm_place(value)))
 
+
+def _interleave_catalog_targets(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Create a stable round-robin catalog so every baby category is sampled."""
+    grouped: dict[str, list[dict[str, str]]] = {key: [] for key in PRODUCT_TYPES}
+    for row in rows:
+        barcode = str(row.get("barcode") or "").strip()
+        need_key = str(row.get("need_key") or "").strip()
+        if barcode and need_key in grouped:
+            grouped[need_key].append({"barcode": barcode, "need_key": need_key})
+    for values in grouped.values():
+        values.sort(key=lambda item: item["barcode"])
+    ordered: list[dict[str, str]] = []
+    max_group = max((len(values) for values in grouped.values()), default=0)
+    for index in range(max_group):
+        for need_key in PRODUCT_TYPES:
+            values = grouped[need_key]
+            if index < len(values):
+                ordered.append(values[index])
+    return ordered
+
+
+def _special_retailer_cursor(
+    db: SupabaseREST,
+) -> tuple[int, int, datetime | None, list[str]]:
+    """Return the next cursor plus committed-cycle state from the latest run."""
+    diagnostics: list[str] = []
+    try:
+        rows = db.select(
+            "feed_ingestion_runs",
+            {
+                "select": "started_at,finished_at,details",
+                "chain_id": "in.(super_pharm,ksp)",
+                "order": "started_at.desc",
+                "limit": "20",
+            },
+        )
+        for row in rows:
+            details = row.get("details") if isinstance(row.get("details"), dict) else {}
+            batch = details.get("special_retailer_batch")
+            if not isinstance(batch, dict) or batch.get("version") != "v049":
+                continue
+            committed = batch.get("committed") is not False
+            cursor_field = "next_cursor" if committed else "cursor_start"
+            cycles_field = "cycles_completed" if committed else "cycles_completed_before"
+            cycles = int(batch.get(cycles_field) or 0)
+            if committed and "cycles_completed" not in batch and batch.get("wrapped"):
+                # Backward compatibility with the first v0.49 package.
+                cycles = 1
+            completed_at = None
+            completed_value = row.get("finished_at") or row.get("started_at")
+            if committed and completed_value:
+                try:
+                    completed_at = datetime.fromisoformat(
+                        str(completed_value).replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    diagnostics.append("latest special retailer timestamp was invalid")
+            return (
+                max(0, int(batch.get(cursor_field) or 0)),
+                max(0, cycles),
+                completed_at,
+                diagnostics,
+            )
+    except Exception as exc:
+        diagnostics.append(
+            f"special retailer cursor read failed: {type(exc).__name__}: {exc}"
+        )
+    return 0, 0, None, diagnostics
+
+
+def _special_retailer_batch(
+    db: SupabaseREST,
+    catalog_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, str]], dict[str, Any], list[str]]:
+    ordered = _interleave_catalog_targets(catalog_rows)
+    total = len(ordered)
+    requested_size = max(1, int(os.environ.get("SPECIAL_RETAILER_BATCH_SIZE", "48")))
+    cursor, cycles_completed, last_completed_at, diagnostics = _special_retailer_cursor(db)
+    maintenance_hours = max(
+        1.0, float(os.environ.get("SPECIAL_RETAILER_MAINTENANCE_HOURS", "4"))
+    )
+    forced = (
+        os.environ.get("SPECIAL_RETAILER_FORCE_RUN") == "1"
+        or os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    )
+    now = datetime.now(timezone.utc)
+    next_due_at = (
+        last_completed_at + timedelta(hours=maintenance_hours)
+        if last_completed_at and cycles_completed > 0
+        else None
+    )
+    due = bool(
+        forced
+        or cycles_completed == 0
+        or next_due_at is None
+        or now >= next_due_at
+    )
+    if total == 0:
+        return [], {
+            "version": "v049", "cursor_start": 0, "next_cursor": 0,
+            "batch_size": 0, "requested_batch_size": requested_size,
+            "total_catalog_products": 0, "wrapped": False, "category_counts": {},
+            "mode": "waiting_for_catalog", "due": False, "committed": False,
+            "cycles_completed_before": cycles_completed,
+            "cycles_completed": cycles_completed,
+        }, diagnostics
+    cursor %= total
+    # Do not wrap inside a batch: the last bootstrap run only checks the
+    # remaining products instead of wasting calls on the beginning again.
+    batch_size = min(requested_size, total - cursor)
+    selected = ordered[cursor:cursor + batch_size]
+    next_cursor = (cursor + batch_size) % total
+    category_counts: dict[str, int] = defaultdict(int)
+    for row in selected:
+        category_counts[row["need_key"]] += 1
+    wrapped = cursor + batch_size >= total
+    return selected, {
+        "version": "v049",
+        "cursor_start": cursor,
+        "next_cursor": next_cursor,
+        "batch_size": batch_size,
+        "requested_batch_size": requested_size,
+        "total_catalog_products": total,
+        "wrapped": wrapped,
+        "category_counts": dict(category_counts),
+        "mode": "bootstrap" if cycles_completed == 0 else "maintenance",
+        "due": due,
+        "forced": forced,
+        "committed": False,
+        "cycles_completed_before": cycles_completed,
+        "cycles_completed": cycles_completed + (1 if wrapped else 0),
+        "last_completed_at": last_completed_at.isoformat() if last_completed_at else None,
+        "next_due_at": next_due_at.isoformat() if next_due_at else None,
+        "maintenance_interval_hours": maintenance_hours,
+    }, diagnostics
+
+
+def _special_batch_with_lookup_result(
+    batch: dict[str, Any] | None,
+    lookup_stats: dict[str, Any] | None,
+    *,
+    allow_commit: bool = True,
+) -> dict[str, Any]:
+    """Advance the cursor only after every barcode received a provider response."""
+    result = dict(batch or {})
+    stats = lookup_stats or {}
+    expected = max(0, int(result.get("batch_size") or 0))
+    resolved = max(0, int(stats.get("shared_cache_entries") or 0))
+    attempted = max(0, int(stats.get("attempted") or 0))
+    provider_complete = expected > 0 and resolved >= expected
+    committed = allow_commit and provider_complete
+    result.update({
+        "lookup_attempted": attempted,
+        "lookup_resolved": min(resolved, expected),
+        "provider_complete": provider_complete,
+        "committed": committed,
+    })
+    if not committed:
+        result["next_cursor"] = int(result.get("cursor_start") or 0)
+        result["cycles_completed"] = int(
+            result.get("cycles_completed_before") or 0
+        )
+    return result
+
 def build_target_branch_plan(db: SupabaseREST | None) -> dict[str, Any]:
     empty = {
         "cities": [], "locality_codes": {}, "targets": {},
         "known_branch_counts": {}, "ksp_catalog_targets": [],
+        "special_catalog_targets": [], "special_retailer_batch": {},
         "ksp_known_items": [], "diagnostics": [],
     }
     if db is None:
@@ -433,15 +616,16 @@ def build_target_branch_plan(db: SupabaseREST | None) -> dict[str, Any]:
         diagnostics.append(f"{city}: strong={len(strong)} codes={selected or '-'}")
     catalog_targets: list[dict[str, str]] = []
     known_items: list[dict[str, str]] = []
+    special_batch: dict[str, Any] = {}
     try:
-        catalog_targets = [
-            {"barcode": str(r.get("barcode") or ""), "need_key": str(r.get("need_key") or "")}
-            for r in db.select(
+        catalog_rows = db.select(
                 "baby_product_catalog",
-                {"select": "barcode,need_key", "active": "eq.true", "limit": "500"},
+                {"select": "barcode,need_key", "active": "eq.true", "limit": "1000"},
             )
-            if r.get("barcode") and r.get("need_key")
-        ]
+        catalog_targets, special_batch, cursor_diagnostics = _special_retailer_batch(
+            db, catalog_rows
+        )
+        diagnostics.extend(cursor_diagnostics)
         for r in db.select(
             "baby_retail_prices",
             {"select": "barcode,need_key,raw_source", "chain_id": "eq.ksp", "limit": "500"},
@@ -462,6 +646,8 @@ def build_target_branch_plan(db: SupabaseREST | None) -> dict[str, Any]:
         "targets": {k: sorted(v) for k,v in targets.items()},
         "known_branch_counts": dict(known),
         "ksp_catalog_targets": catalog_targets,
+        "special_catalog_targets": catalog_targets,
+        "special_retailer_batch": special_batch,
         "ksp_known_items": known_items,
         "diagnostics": diagnostics[:20],
     }
@@ -2561,6 +2747,7 @@ async def collect_source(
     scraper_name: str,
     file_limit: int | None,
     target_plan: dict[str, Any] | None = None,
+    price_lookup_client: CheaperSalPriceClient | None = None,
 ) -> dict[str, Any]:
     """Collect retailer data with a chain-specific source strategy."""
 
@@ -2577,19 +2764,18 @@ async def collect_source(
             discovery_limit=discovery_limit,
         )
         data = _merge_source_passes(scraper_name, file_limit, passes)
-        cheaper_stats: dict[str, Any] = {
-            "fallback_used": False,
-            "reason": "official KSP pages contained baby price rows",
-        }
-        if not data["price_rows"]:
-            cheaper = CheaperSalPriceFallback(
-                os.environ.get("CHEAPERSAL_API_KEY", ""),
-                limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
-                online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "true").lower() != "false",
-            )
-            cheaper_pass, cheaper_stats = cheaper.collect("KSP", catalog_targets)
-            passes.append(cheaper_pass)
-            data = _merge_source_passes(scraper_name, file_limit, passes)
+        # The official source may return only a handful of products. Always run
+        # the staged catalog lookup as a complementary pass so partial success
+        # cannot prevent coverage from growing on this run.
+        cheaper = CheaperSalPriceFallback(
+            os.environ.get("CHEAPERSAL_API_KEY", ""),
+            limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
+            online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "true").lower() != "false",
+            client=price_lookup_client,
+        )
+        cheaper_pass, cheaper_stats = cheaper.collect("KSP", catalog_targets)
+        passes.append(cheaper_pass)
+        data = _merge_source_passes(scraper_name, file_limit, passes)
         data["scrape_file_limit"] = {
             "max_items": max_items,
             "category_pages": category_pages,
@@ -2598,6 +2784,10 @@ async def collect_source(
         }
         data["ksp_official"] = stats
         data["cheapersal_price_fallback"] = cheaper_stats
+        data["special_retailer_batch"] = _special_batch_with_lookup_result(
+            (target_plan or {}).get("special_retailer_batch"),
+            cheaper_stats,
+        )
         return data
 
     if scraper_name == "SUPER_PHARM":
@@ -2648,22 +2838,18 @@ async def collect_source(
             )
             passes.append(online_pass)
             data = _merge_source_passes(scraper_name, file_limit, passes)
-        cheaper_stats: dict[str, Any] = {
-            "fallback_used": False,
-            "reason": "official Super-Pharm sources contained baby price rows",
-        }
-        if not data["price_rows"]:
-            cheaper = CheaperSalPriceFallback(
-                os.environ.get("CHEAPERSAL_API_KEY", ""),
-                limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
-                online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "true").lower() != "false",
-            )
-            cheaper_pass, cheaper_stats = cheaper.collect(
-                "SUPER_PHARM",
-                list((target_plan or {}).get("ksp_catalog_targets", [])),
-            )
-            passes.append(cheaper_pass)
-            data = _merge_source_passes(scraper_name, file_limit, passes)
+        cheaper = CheaperSalPriceFallback(
+            os.environ.get("CHEAPERSAL_API_KEY", ""),
+            limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
+            online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "true").lower() != "false",
+            client=price_lookup_client,
+        )
+        cheaper_pass, cheaper_stats = cheaper.collect(
+            "SUPER_PHARM",
+            list((target_plan or {}).get("special_catalog_targets", [])),
+        )
+        passes.append(cheaper_pass)
+        data = _merge_source_passes(scraper_name, file_limit, passes)
         data["scrape_file_limit"] = {
             "stores": 1,
             "full": full_limit,
@@ -2678,6 +2864,11 @@ async def collect_source(
         data["super_pharm_bootstrap"] = stats
         data["super_pharm_online_fallback"] = online_stats
         data["cheapersal_price_fallback"] = cheaper_stats
+        data["special_retailer_batch"] = _special_batch_with_lookup_result(
+            (target_plan or {}).get("special_retailer_batch"),
+            cheaper_stats,
+            allow_commit=False,
+        )
         return data
 
     if scraper_name == "YOHANANOF":
@@ -3164,7 +3355,15 @@ def assess_ingestion_outcome(
     return "partial", f"{scraper_name}: source pages were read but no valid baby price row was parsed"
 
 
-async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, file_limit: int | None, enricher: MetadataEnricher | None = None, target_plan: dict[str, Any] | None = None):
+async def run_chain(
+    scraper_name: str,
+    db: SupabaseREST | None,
+    dry_run: bool,
+    file_limit: int | None,
+    enricher: MetadataEnricher | None = None,
+    target_plan: dict[str, Any] | None = None,
+    price_lookup_client: CheaperSalPriceClient | None = None,
+):
     source_db_name = SCRAPER_TO_DB[scraper_name]
     run_id = None
     if db and not dry_run:
@@ -3176,7 +3375,12 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         run_id = run.get("id")
 
     try:
-        data = await collect_source(scraper_name, file_limit, target_plan)
+        data = await collect_source(
+            scraper_name,
+            file_limit,
+            target_plan,
+            price_lookup_client,
+        )
         merged = merge_prices_and_promos(data["price_rows"], data["promo_rows"])
         prices = [to_db_price(x) for x in merged]
 
@@ -3193,7 +3397,9 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         if db and not dry_run and prices:
             prices, stale_rows_skipped = filter_stale_against_db(db, prices)
 
-        official_catalog_stats = {"candidates": 0, "already_known": 0, "saved": 0}
+        official_catalog_stats = {
+            "candidates": 0, "already_known": 0, "saved": 0, "images_saved": 0,
+        }
         if db and not dry_run and prices:
             official_catalog_stats = save_official_catalog_rows(db, prices)
 
@@ -3202,7 +3408,10 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         # used only to fill persistent catalog metadata such as full name,
         # brand, size/stage and package quantity.
         enrichment_stats = {"attempted": 0, "catalog_saved": 0, "skipped": 0, "errors": []}
-        if enricher and db and not dry_run and prices:
+        if (
+            enricher and db and not dry_run and prices
+            and scraper_name not in {"SUPER_PHARM", "KSP"}
+        ):
             enrichment_stats = enricher.enrich_missing_catalog(prices)
 
         branches = [to_db_branch(x) for x in data["store_rows"]]
@@ -3274,6 +3483,7 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
                         "super_pharm_online_fallback": data.get("super_pharm_online_fallback"),
                         "ksp_official": data.get("ksp_official"),
                         "cheapersal_price_fallback": data.get("cheapersal_price_fallback"),
+                        "special_retailer_batch": data.get("special_retailer_batch"),
                         "rami_levy_location": data.get("rami_levy_location"),
                         "osher_ad_bootstrap": data.get("osher_ad_bootstrap"),
                         "targeted_branch_coverage": data.get("targeted_branch_coverage"),
@@ -3310,6 +3520,72 @@ async def run_chain(scraper_name: str, db: SupabaseREST | None, dry_run: bool, f
         print(f"❌ {scraper_name}: {type(exc).__name__}: {exc}", file=sys.stderr)
         raise
 
+
+def special_retailer_coverage(db: SupabaseREST) -> dict[str, Any]:
+    """Build an operator-facing coverage snapshot without adding public DB views."""
+    catalog = db.select(
+        "baby_product_catalog",
+        {
+            "select": "barcode,need_key,image_url",
+            "active": "eq.true",
+            "limit": "2000",
+        },
+    )
+    prices = db.select(
+        "baby_retail_prices",
+        {
+            "select": "chain_id,branch_code,barcode,need_key,last_seen_at",
+            "chain_id": "in.(super_pharm,ksp)",
+            "limit": "10000",
+        },
+    )
+    branches = db.select(
+        "retail_branches",
+        {
+            "select": "chain_id,branch_code,branch_name,city,latitude,longitude",
+            "chain_id": "in.(super_pharm,ksp)",
+            "active": "eq.true",
+            "limit": "1000",
+        },
+    )
+    total_catalog = len({str(row.get("barcode")) for row in catalog if row.get("barcode")})
+    images = len({
+        str(row.get("barcode"))
+        for row in catalog
+        if row.get("barcode") and row.get("image_url")
+    })
+    report: dict[str, Any] = {
+        "catalog_products": total_catalog,
+        "catalog_images": images,
+        "catalog_image_coverage_pct": round(100 * images / total_catalog, 1) if total_catalog else 0,
+        "chains": {},
+    }
+    for chain_id in ("super_pharm", "ksp"):
+        chain_prices = [row for row in prices if row.get("chain_id") == chain_id]
+        chain_branches = [row for row in branches if row.get("chain_id") == chain_id]
+        barcodes = {str(row.get("barcode")) for row in chain_prices if row.get("barcode")}
+        category_counts: dict[str, set[str]] = defaultdict(set)
+        for row in chain_prices:
+            if row.get("need_key") and row.get("barcode"):
+                category_counts[str(row["need_key"])].add(str(row["barcode"]))
+        geocoded = sum(
+            1 for row in chain_branches
+            if row.get("latitude") is not None and row.get("longitude") is not None
+        )
+        report["chains"][chain_id] = {
+            "unique_products": len(barcodes),
+            "catalog_coverage_pct": round(100 * len(barcodes) / total_catalog, 1) if total_catalog else 0,
+            "price_rows": len(chain_prices),
+            "categories": {key: len(value) for key, value in sorted(category_counts.items())},
+            "branches": len(chain_branches),
+            "geocoded_branches": geocoded,
+            "latest_seen_at": max(
+                (str(row.get("last_seen_at")) for row in chain_prices if row.get("last_seen_at")),
+                default=None,
+            ),
+        }
+    return report
+
 async def async_main(args):
     requested = [x.strip() for x in args.chains.split(",") if x.strip()]
     unsupported = [x for x in requested if x == "hiper_cohen"]
@@ -3334,10 +3610,37 @@ async def async_main(args):
             api_key=os.environ.get("CHEAPERSAL_API_KEY", ""),
             limit=int(os.environ.get("ENRICHMENT_LIMIT", "8")),
         )
+    price_lookup_client = CheaperSalPriceClient(
+        os.environ.get("CHEAPERSAL_API_KEY", ""),
+        limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "48")),
+        online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "false").lower() != "false",
+        minimum_interval=float(os.environ.get("CHEAPERSAL_MIN_INTERVAL_SECONDS", "7")),
+        max_rate_retries=int(os.environ.get("CHEAPERSAL_MAX_RATE_RETRIES", "1")),
+    )
     target_plan = build_target_branch_plan(db)
     print("📍 target branch plan: " + json.dumps(target_plan, ensure_ascii=False))
+    special_batch = target_plan.get("special_retailer_batch") or {}
+    if db and not args.dry_run and not special_batch.get("due", True):
+        before = list(scraper_names)
+        scraper_names = [name for name in scraper_names if name not in {"SUPER_PHARM", "KSP"}]
+        if len(before) != len(scraper_names):
+            print(
+                "⏱️ SPECIAL_RETAILER_AUTO: initial catalog scan is complete; "
+                f"maintenance is not due until {special_batch.get('next_due_at')}. "
+                "This hourly check will exit without retailer API calls."
+            )
+        if not scraper_names:
+            return
     for scraper_name in scraper_names:
-        await run_chain(scraper_name, db, args.dry_run, args.file_limit, enricher, target_plan)
+        await run_chain(
+            scraper_name,
+            db,
+            args.dry_run,
+            args.file_limit,
+            enricher,
+            target_plan,
+            price_lookup_client,
+        )
     if db and not args.dry_run:
         image_limit, cheapersal_image_limit = image_limits_from_environment()
         try:
@@ -3358,6 +3661,16 @@ async def async_main(args):
         except Exception as exc:
             print(
                 "::warning title=Product image enrichment::"
+                f"{type(exc).__name__}: {exc}"
+            )
+        try:
+            print(
+                "📊 SPECIAL_RETAILER_COVERAGE: "
+                + json.dumps(special_retailer_coverage(db), ensure_ascii=False)
+            )
+        except Exception as exc:
+            print(
+                "::warning title=Special retailer coverage::"
                 f"{type(exc).__name__}: {exc}"
             )
 

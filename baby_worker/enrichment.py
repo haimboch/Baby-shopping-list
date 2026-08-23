@@ -1,6 +1,5 @@
 from __future__ import annotations
 import os
-import time
 from datetime import datetime, timezone
 from typing import Any
 import requests
@@ -9,6 +8,7 @@ from .classifier import classify_need, infer_brand, parse_dimension, parse_packa
 from .product_types import PRODUCT_TYPES
 from .product_images import extract_product_image
 from .supabase_rest import SupabaseREST
+from .rate_limit import record_call, wait_for_slot
 
 API_BASE = "https://api.cheapersal.co.il/api/v1"
 
@@ -30,7 +30,6 @@ class MetadataEnricher:
         self.db = db
         self.api_key = (api_key or "").strip()
         self.remaining = max(0, int(limit))
-        self._last_call_monotonic: float | None = None
 
     def _catalog_known(self, barcodes: list[str]) -> set[str]:
         if not barcodes:
@@ -57,18 +56,20 @@ class MetadataEnricher:
 
         # Space calls so repeated manual runs do not burst past the provider's
         # per-minute rate limit. 6.2 sec = <10 calls/minute.
-        if self._last_call_monotonic is not None:
-            elapsed = time.monotonic() - self._last_call_monotonic
-            if elapsed < 6.2:
-                time.sleep(6.2 - elapsed)
-
-        r = requests.get(
-            f"{API_BASE}/products/{barcode}",
-            headers={"X-API-Key": self.api_key},
-            timeout=30,
+        wait_for_slot(
+            "cheapersal",
+            float(os.environ.get("CHEAPERSAL_MIN_INTERVAL_SECONDS", "7")),
         )
-        self._last_call_monotonic = time.monotonic()
+        # Count attempted requests even when the provider times out.
         self.remaining -= 1
+        try:
+            r = requests.get(
+                f"{API_BASE}/products/{barcode}",
+                headers={"X-API-Key": self.api_key},
+                timeout=30,
+            )
+        finally:
+            record_call("cheapersal")
 
         if r.status_code == 404:
             return None
