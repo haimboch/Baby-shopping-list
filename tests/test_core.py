@@ -21,55 +21,55 @@ from baby_worker.worker import (
 from baby_worker.xmlfeeds import parse_price_rows, parse_promotions, parse_stores
 
 def test_classifier():
-    assert classify_need("×”××’×™×¡ ××§×¡×˜×¨×” ×§×¨ ×—×™×ª×•×œ×™× ×ž×™×“×” 3 40 ×™×—×™×“×•×ª") == "diapers"
-    assert classify_need("×ž×’×‘×•× ×™× ×œ×—×™× ×”××’×™×¡ 4x56") == "wipes"
-    assert classify_need("×ž×˜×¨× ×” ×—×œ×‘×™ ×©×œ×‘ 2 700 ×’×¨×") == "formula"
-    assert classify_need("×©×§×™×•×ª ×œ×—×™×ª×•×œ×™× ×ž×œ×•×›×œ×›×™×") == "diaper_bags"
+    assert classify_need("האגיס אקסטרה קר חיתולים מידה 3 40 יחידות") == "diapers"
+    assert classify_need("מגבונים לחים האגיס 4x56") == "wipes"
+    assert classify_need("מטרנה חלבי שלב 2 700 גרם") == "formula"
+    assert classify_need("שקיות לחיתולים מלוכלכים") == "diaper_bags"
 
 def test_expanded_baby_product_classifier():
     examples = {
-        "×ž×©×—×ª ×”×—×ª×œ×” ×œ×ª×™× ×•×§ ×¡×•×“×•×§×¨× 125 ×’×¨×": "diaper_cream",
-        "×ž×©×˜×—×™ ×”×—×ª×œ×” ×—×“ ×¤×¢×ž×™×™× 10 ×™×—×™×“×•×ª": "changing_pads",
-        "×©×§×™×•×ª ×œ×—×™×ª×•×œ×™× ×ž×œ×•×›×œ×›×™× 100 ×™×—×™×“×•×ª": "diaper_bags",
-        "×©×ž×Ÿ ××ž×‘×˜ ×œ×ª×™× ×•×§ ××ž×•×œ 500 ×ž×œ": "bath_oil",
-        "×©×ž×¤×• ×•×¡×‘×•×Ÿ ×œ×ª×™× ×•×§ ×“×•×§×˜×•×¨ ×¤×™×©×¨ 700 ×ž×œ": "baby_wash",
-        "×§×¨× ×’×•×£ ×œ×ª×™× ×•×§ ×ž×•×¡×˜×œ×” 200 ×’×¨×": "body_cream",
-        "×’×³×œ ×›×‘×™×¡×” ×œ×ª×™× ×•×§ ×¡× ×• ×ž×§×¡×™×ž×” 1 ×œ×™×˜×¨": "baby_laundry",
+        "משחת החתלה לתינוק סודוקרם 125 גרם": "diaper_cream",
+        "משטחי החתלה חד פעמיים 10 יחידות": "changing_pads",
+        "שקיות לחיתולים מלוכלכים 100 יחידות": "diaper_bags",
+        "שמן אמבט לתינוק אמול 500 מל": "bath_oil",
+        "שמפו וסבון לתינוק דוקטור פישר 700 מל": "baby_wash",
+        "קרם גוף לתינוק מוסטלה 200 גרם": "body_cream",
+        "ג׳ל כביסה לתינוק סנו מקסימה 1 ליטר": "baby_laundry",
     }
     for name, expected in examples.items():
         assert classify_need(name) == expected, name
-    assert classify_need("×©×ž×¤×• ×œ×©×™×¢×¨ ×¨×’×™×œ") is None
-    assert classify_need("×§×¨× ×’×•×£ ×œ×ž×‘×•×’×¨×™×") is None
+    assert classify_need("שמפו לשיער רגיל") is None
+    assert classify_need("קרם גוף למבוגרים") is None
 
 
 def test_baby_only_classifier_rejects_adult_and_general_products():
     rejected = [
-        "×—×™×ª×•×œ×™ ×œ×™×œ×” ×œ×ž×‘×•×’×¨×™× ×ž×™×“×” L 10 ×™×—×™×“×•×ª",
-        "×“×œ×™ ×ž×’×‘×•× ×™× ×œ×¨×¦×¤×” 400 ×™×—×™×“×•×ª",
-        "×ž×’×‘×•× ×™× ×œ×—×™× ×œ× ×™×§×•×™ ×”×ž×˜×‘×—",
-        "×ž×’×‘×•× ×™× ×œ×”×¡×¨×ª ××™×¤×•×¨",
-        "×ž×’×‘×•× ×™× ×œ×—×™× ×œ×œ× ×©× ×ž×•×ª×’ 72 ×™×—×™×“×•×ª",
-        "×“×™×™×¡×ª ×ž×˜×¨× ×” ×“×’× ×™× 200 ×’×¨×",
-        "×ž×—×™×ª ×ž×˜×¨× ×” ×ª×¤×•×— ×•×‘× × ×”",
-        "×ž×˜×¨× ×” ×¤××•×¥ ×¤×™×¨×•×ª",
-        "×›×¤×™×ª ×œ×”×›× ×ª ×ª×ž×´×œ",
-        "×¦×™×“× ×™×ª ×ž×˜×¨× ×” ×œ×‘×§×‘×•×§",
-        "×¤×“×™××©×•×¨ ×¤×•×¨×ž×•×œ×” ×œ×™×œ×“×™×",
-        "×¤×™× ×•×§ ×ª×—×œ×™×‘ ×¨×—×¦×” ×©×ž×Ÿ ××¨×’×Ÿ",
-        "×©×ž×Ÿ ×¨×—×¦×” ×œ×ž×‘×•×’×¨×™× 500 ×ž×œ",
-        "×©×ž×¤×• ×œ×™×œ×“×™× ×¡×¨×§×œ 1 ×œ×™×˜×¨",
+        "חיתולי לילה למבוגרים מידה L 10 יחידות",
+        "דלי מגבונים לרצפה 400 יחידות",
+        "מגבונים לחים לניקוי המטבח",
+        "מגבונים להסרת איפור",
+        "מגבונים לחים ללא שם מותג 72 יחידות",
+        "דייסת מטרנה דגנים 200 גרם",
+        "מחית מטרנה תפוח ובננה",
+        "מטרנה פאוץ פירות",
+        "כפית להכנת תמ״ל",
+        "צידנית מטרנה לבקבוק",
+        "פדיאשור פורמולה לילדים",
+        "פינוק תחליב רחצה שמן ארגן",
+        "שמן רחצה למבוגרים 500 מל",
+        "שמפו לילדים סרקל 1 ליטר",
     ]
     for name in rejected:
         assert classify_need(name) is None, name
 
     accepted = {
-        "×”××’×™×¡ ×—×™×ª×•×œ×™ ×œ×™×œ×” ×ž×™×“×” 5": "diapers",
-        "×¤×ž×¤×¨×¡ ×—×™×ª×•×œ×™ ×©×—×™×™×” ×ž×™×“×” 4": "diapers",
-        "×ž×’×‘×•× ×™× ×œ×—×™× ×œ×ª×™× ×•×§ ×œ×œ× ×‘×™×©×•×": "wipes",
-        "×ž×’×‘×•× ×™× ×œ×—×™× Huggies Natural Care": "wipes",
-        "×ž×˜×¨× ×” ×¦×ž×—×™×ª ×ž×’×™×œ ×©× ×” 700 ×’×¨×": "formula",
-        "×ž×–×•×Ÿ ×œ×ª×™× ×•×§×•×ª ×¦×ž×—×™ ×©×œ×‘ 1": "formula",
-        "×©×ž×Ÿ ××ž×‘×˜ ××ž×•×œ 500 ×ž×œ": "bath_oil",
+        "האגיס חיתולי לילה מידה 5": "diapers",
+        "פמפרס חיתולי שחייה מידה 4": "diapers",
+        "מגבונים לחים לתינוק ללא בישום": "wipes",
+        "מגבונים לחים Huggies Natural Care": "wipes",
+        "מטרנה צמחית מגיל שנה 700 גרם": "formula",
+        "מזון לתינוקות צמחי שלב 1": "formula",
+        "שמן אמבט אמול 500 מל": "bath_oil",
     }
     for name, expected in accepted.items():
         assert classify_need(name) == expected, name
@@ -110,7 +110,7 @@ def test_image_enrichment_verifies_exact_barcode():
     assert stats["checked"] == 1
     assert stats["saved"] == 1
     assert db.patches[0][1] == {"barcode": "7290000000011"}
-    assert db.patches[0][2]["image_source"] == "Open Products Facts Â· verified barcode"
+    assert db.patches[0][2]["image_source"] == "Open Products Facts · verified barcode"
 
 
 def test_product_photo_is_rejected_when_barcode_does_not_match():
@@ -147,19 +147,19 @@ def test_product_photo_is_rejected_when_barcode_does_not_match():
         product_images_module.requests.get = original_get
 
 def test_expanded_product_package_quantities():
-    assert parse_package_quantity("×©×ž×Ÿ ××ž×‘×˜ ×œ×ª×™× ×•×§ 500 ×ž×´×œ", "bath_oil") == (500, "×ž×´×œ")
-    assert parse_package_quantity("×’×³×œ ×›×‘×™×¡×” ×œ×ª×™× ×•×§ 1.5 ×œ×™×˜×¨", "baby_laundry") == (1500, "×ž×´×œ")
-    assert parse_package_quantity("×ž×©×—×ª ×”×—×ª×œ×” 125 ×’×¨×", "diaper_cream") == (125, "×’×¨×")
-    assert parse_package_quantity("×ž×©×˜×—×™ ×”×—×ª×œ×” 10 ×™×—×™×“×•×ª", "changing_pads") == (10, "×™×—×™×“×•×ª")
+    assert parse_package_quantity("שמן אמבט לתינוק 500 מ״ל", "bath_oil") == (500, "מ״ל")
+    assert parse_package_quantity("ג׳ל כביסה לתינוק 1.5 ליטר", "baby_laundry") == (1500, "מ״ל")
+    assert parse_package_quantity("משחת החתלה 125 גרם", "diaper_cream") == (125, "גרם")
+    assert parse_package_quantity("משטחי החתלה 10 יחידות", "changing_pads") == (10, "יחידות")
 
 def test_dimensions():
-    assert parse_dimension("×¤×ž×¤×¨×¡ ×ž×™×“×” 4+", "diapers") == ("size", "4+")
+    assert parse_dimension("פמפרס מידה 4+", "diapers") == ("size", "4+")
     assert parse_dimension("Huggies NB newborn", "diapers") == ("size", "NB")
-    assert parse_dimension("×¡×™×ž×™×œ××§ ×’×•×œ×“ ×©×œ×‘ 1", "formula") == ("stage", "1")
+    assert parse_dimension("סימילאק גולד שלב 1", "formula") == ("stage", "1")
 
 def test_quantities():
-    assert parse_package_quantity("×ž×’×‘×•× ×™× 4x56", "wipes")[0] == 224
-    assert parse_package_quantity("×ª×ž×´×œ 700 ×’×¨×", "formula")[0] == 700
+    assert parse_package_quantity("מגבונים 4x56", "wipes")[0] == 224
+    assert parse_package_quantity("תמ״ל 700 גרם", "formula")[0] == 700
 
 def test_xml_price_and_store():
     price_xml = """<?xml version="1.0" encoding="UTF-8"?>
@@ -168,14 +168,14 @@ def test_xml_price_and_store():
       <Items>
         <Item>
           <ItemCode>7290000000001</ItemCode>
-          <ItemName>×”××’×™×¡ ×—×™×ª×•×œ×™× ×ž×™×“×” 3 40 ×™×—×™×“×•×ª</ItemName>
+          <ItemName>האגיס חיתולים מידה 3 40 יחידות</ItemName>
           <ManufacturerName>Huggies</ManufacturerName>
           <QtyInPackage>40</QtyInPackage>
           <ItemPrice>39.90</ItemPrice>
         </Item>
         <Item>
           <ItemCode>7290000000002</ItemCode>
-          <ItemName>×§×•×œ×” 1.5 ×œ×™×˜×¨</ItemName>
+          <ItemName>קולה 1.5 ליטר</ItemName>
           <ItemPrice>7.90</ItemPrice>
         </Item>
       </Items>
@@ -189,31 +189,31 @@ def test_xml_price_and_store():
     assert rows[0]["package_quantity"] == 40
 
     stores_xml = """<Root><Stores><Store>
-      <StoreId>123</StoreId><SubChainId>005</SubChainId><StoreName>BE ×©×“×¨×•×ª</StoreName>
-      <Address>×¨×—×•×‘ ×œ×“×•×’×ž×” 1</Address><City>×©×“×¨×•×ª</City>
+      <StoreId>123</StoreId><SubChainId>005</SubChainId><StoreName>BE שדרות</StoreName>
+      <Address>רחוב לדוגמה 1</Address><City>שדרות</City>
     </Store></Stores></Root>""".encode("utf-8")
     stores = parse_stores(stores_xml, "SHUFERSAL", "Stores7290027600007-20260816.xml")
     assert stores[0]["branch_code"] == "123"
-    assert stores[0]["city"] == "×©×“×¨×•×ª"
+    assert stores[0]["city"] == "שדרות"
 
 
 def test_xml_imports_expanded_product_categories():
     price_xml = """<?xml version="1.0" encoding="UTF-8"?>
     <Root><StoreId>456</StoreId><Items>
       <Item><ItemCode>7290000000011</ItemCode>
-        <ItemName>×ž×©×—×ª ×”×—×ª×œ×” ×œ×ª×™× ×•×§ ×¡×•×“×•×§×¨× 125 ×’×¨×</ItemName>
+        <ItemName>משחת החתלה לתינוק סודוקרם 125 גרם</ItemName>
         <ManufacturerName>Sudocrem</ManufacturerName><ItemPrice>24.90</ItemPrice></Item>
       <Item><ItemCode>7290000000012</ItemCode>
-        <ItemName>×©×ž×Ÿ ××ž×‘×˜ ×œ×ª×™× ×•×§ ××ž×•×œ 500 ×ž×´×œ</ItemName>
+        <ItemName>שמן אמבט לתינוק אמול 500 מ״ל</ItemName>
         <ManufacturerName>Emol</ManufacturerName><ItemPrice>34.90</ItemPrice></Item>
       <Item><ItemCode>7290000000013</ItemCode>
-        <ItemName>×’×³×œ ×›×‘×™×¡×” ×œ×ª×™× ×•×§ ×¡× ×• ×ž×§×¡×™×ž×” 1 ×œ×™×˜×¨</ItemName>
+        <ItemName>ג׳ל כביסה לתינוק סנו מקסימה 1 ליטר</ItemName>
         <ManufacturerName>Sano</ManufacturerName><ItemPrice>29.90</ItemPrice></Item>
       <Item><ItemCode>7290000000014</ItemCode>
-        <ItemName>×ž×©×˜×—×™ ×”×—×ª×œ×” ×—×“ ×¤×¢×ž×™×™× 10 ×™×—×™×“×•×ª</ItemName>
+        <ItemName>משטחי החתלה חד פעמיים 10 יחידות</ItemName>
         <ManufacturerName>BabySitter</ManufacturerName><ItemPrice>19.90</ItemPrice></Item>
       <Item><ItemCode>7290000000015</ItemCode>
-        <ItemName>×©×ž×¤×• ×¨×’×™×œ ×œ×ž×‘×•×’×¨×™×</ItemName><ItemPrice>12.90</ItemPrice></Item>
+        <ItemName>שמפו רגיל למבוגרים</ItemName><ItemPrice>12.90</ItemPrice></Item>
     </Items></Root>""".encode("utf-8")
     rows = parse_price_rows(price_xml, "RAMI_LEVY", "PriceFull7290058140886-001-456-202608210800.xml")
     assert {row["need_key"] for row in rows} == {
@@ -243,14 +243,14 @@ def test_catalog_collects_products_from_every_supermarket():
     db = FakeDatabase()
     rows = [
         {"chain_id": "rami_levy", "need_key": "diaper_cream", "barcode": "7290000000011",
-         "product_name": "×ž×©×—×ª ×”×—×ª×œ×” ×¡×•×“×•×§×¨× 125 ×’×¨×", "brand": "Sudocrem",
-         "package_quantity": 125, "package_unit": "×’×¨×"},
+         "product_name": "משחת החתלה סודוקרם 125 גרם", "brand": "Sudocrem",
+         "package_quantity": 125, "package_unit": "גרם"},
         {"chain_id": "shufersal", "need_key": "baby_wash", "barcode": "7290000000012",
-         "product_name": "×¡×‘×•×Ÿ ×œ×ª×™× ×•×§ ×“×•×§×˜×•×¨ ×¤×™×©×¨ 700 ×ž×´×œ", "brand": "Dr. Fischer",
-         "package_quantity": 700, "package_unit": "×ž×´×œ"},
+         "product_name": "סבון לתינוק דוקטור פישר 700 מ״ל", "brand": "Dr. Fischer",
+         "package_quantity": 700, "package_unit": "מ״ל"},
         {"chain_id": "osher_ad", "need_key": "baby_laundry", "barcode": "7290000000013",
-         "product_name": "×’×³×œ ×›×‘×™×¡×” ×œ×ª×™× ×•×§ ×¡× ×• 1 ×œ×™×˜×¨", "brand": "Sano",
-         "package_quantity": 1000, "package_unit": "×ž×´×œ"},
+         "product_name": "ג׳ל כביסה לתינוק סנו 1 ליטר", "brand": "Sano",
+         "package_quantity": 1000, "package_unit": "מ״ל"},
     ]
     stats = save_official_catalog_rows(db, rows)
     assert stats == {
@@ -267,8 +267,8 @@ def test_zero_source_numbers_are_safely_sanitized():
         "source_name": "RAMI_LEVY", "subchain_id": None, "branch_code": "003",
         "barcode": "8435495819363", "need_key": "baby_laundry",
         "dimension_type": "none", "dimension_value": None, "brand": "Test",
-        "product_name": "×—×•×ž×¨ ×›×‘×™×¡×” ×œ×ª×™× ×•×§", "package_quantity": 0,
-        "package_unit": "×™×—×™×“×•×ª", "regular_price": 17.9,
+        "product_name": "חומר כביסה לתינוק", "package_quantity": 0,
+        "package_unit": "יחידות", "regular_price": 17.9,
         "promo_price": 0, "promo_min_quantity": 0, "promo_total_price": 0,
         "requires_club": False, "source_updated_at": None, "raw_source": {},
     }
@@ -282,7 +282,7 @@ def test_zero_source_numbers_are_safely_sanitized():
         "source_name": "RAMI_LEVY", "branch_code": "003",
         "barcode": "8435495819363", "promo_price": 0,
         "promo_min_quantity": 0, "promo_total_price": 0,
-        "promo_description": "×¨×©×•×ž×ª ××¤×¡", "requires_club": False,
+        "promo_description": "רשומת אפס", "requires_club": False,
     }])
     assert merged[0]["promo_price"] is None
     assert merged[0]["promo_min_quantity"] == 1
@@ -291,7 +291,7 @@ def test_zero_source_numbers_are_safely_sanitized():
 
 def test_multi_buy_promotion_terms():
     promo_xml = """<Root><StoreId>123</StoreId><Promotions><Promotion>
-      <PromotionDescription>2 ××¨×™×–×•×ª ×‘-70</PromotionDescription>
+      <PromotionDescription>2 אריזות ב-70</PromotionDescription>
       <PromotionTotalPrice>70</PromotionTotalPrice><MinQty>2</MinQty>
       <PromotionStartDate>2026-08-01</PromotionStartDate>
       <PromotionEndDate>2026-08-31</PromotionEndDate>
@@ -315,7 +315,7 @@ def test_ksp_official_product_parser():
       <meta property="product:price:amount" content="39.90">
       <script type="application/ld+json">{
         "@context":"https://schema.org","@type":"Product",
-        "name":"Pampers ×—×™×ª×•×œ×™× ×ž×™×“×” 4 44 ×™×—×™×“×•×ª",
+        "name":"Pampers חיתולים מידה 4 44 יחידות",
         "gtin13":"8700216596701","brand":{"name":"Pampers"},
         "regularPrice":"54.90",
         "offers":{"@type":"Offer","price":"39.90","priceValidUntil":"2026-08-31"}
@@ -336,9 +336,9 @@ def test_ksp_official_product_parser():
 
 def test_ksp_print_page_fallback_parser():
     page = """<html><body>
-      ×©× ×”×ž×•×¦×¨: Pampers ×—×™×ª×•×œ×™× ×ž×™×“×” 4 44 ×™×—×™×“×•×ª
-      ×ž×¡×¤×¨ ×ž×•×¦×¨: 440079 ×ª××¨×™×š ×ª×•×§×£: 20-08-2026
-      ×ž×—×™×¨ ××©×¨××™: 39.90 â‚ª ×‘×¨×§×•×“: 8700216596701
+      שם המוצר: Pampers חיתולים מידה 4 44 יחידות
+      מספר מוצר: 440079 תאריך תוקף: 20-08-2026
+      מחיר אשראי: 39.90 ₪ ברקוד: 8700216596701
     </body></html>"""
     parsed = parse_ksp_product_html(
         page,
@@ -354,12 +354,12 @@ def test_ksp_print_page_fallback_parser():
 def test_ksp_json_api_barcode_search_parser():
     payload = {
         "result": {
-            "name": "Pampers ×—×™×ª×•×œ×™× ×ž×™×“×” 5 37 ×™×—×™×“×•×ª",
+            "name": "Pampers חיתולים מידה 5 37 יחידות",
             "uin": "440079",
             "price": 54.9,
             "min_price": 44.9,
             "brandName": "Pampers",
-            "labels": [{"msg": "×ž×—×™×¨ ×œ×—×‘×¨×™ ×ž×•×¢×“×•×Ÿ"}],
+            "labels": [{"msg": "מחיר לחברי מועדון"}],
         }
     }
     parsed = parse_ksp_api_product(
@@ -379,12 +379,12 @@ def test_ksp_json_api_detail_finds_barcode_in_specification():
     payload = {
         "result": {
             "data": {
-                "name": "×ž×’×‘×•× ×™× ×œ×—×™× ×œ×ª×™× ×•×§ ×œ×œ× ×‘×™×©×•× 4 ×™×—×™×“×•×ª",
+                "name": "מגבונים לחים לתינוק ללא בישום 4 יחידות",
                 "price": 24.9,
                 "brandName": "Huggies",
             },
             "specification": [
-                {"name": "×‘×¨×§×•×“", "value": "7290000195537"},
+                {"name": "ברקוד", "value": "7290000195537"},
             ],
         }
     }
@@ -398,7 +398,7 @@ def test_ksp_json_api_detail_finds_barcode_in_specification():
 def test_ksp_json_api_accepts_expanded_baby_categories():
     payload = {
         "result": {
-            "name": "×¡×‘×•×Ÿ ×•×©×ž×¤×• ×œ×ª×™× ×•×§ 500 ×ž×´×œ",
+            "name": "סבון ושמפו לתינוק 500 מ״ל",
             "uin": "990001",
             "price": 22.9,
             "brandName": "Dr. Fischer",
@@ -459,7 +459,7 @@ def test_superpharm_promo_filename_and_merge():
     }]
     promos = [{
         "source_name": "SUPER_PHARM", "branch_code": "123", "barcode": "7290000000001",
-        "promo_price": 40, "promo_description": "×ž×‘×¦×¢", "promo_start_at": "2026-08-01",
+        "promo_price": 40, "promo_description": "מבצע", "promo_start_at": "2026-08-01",
         "promo_end_at": "2099-08-31", "promo_min_quantity": 1,
         "promo_total_price": 40, "requires_club": True,
     }]
@@ -470,16 +470,16 @@ def test_superpharm_promo_filename_and_merge():
 
 def test_superpharm_online_product_and_promo_parser():
     page = """<html><head>
-      <meta property="og:title" content="×”××’×™×¡ - ×ž×’×‘×•× ×™× ×œ×—×™× ×œ×ª×™× ×•×§ ×œ×œ× ×‘×™×©×•×">
+      <meta property="og:title" content="האגיס - מגבונים לחים לתינוק ללא בישום">
       <script type="application/ld+json">{
-        "@type":"Product", "name":"×ž×’×‘×•× ×™× ×œ×—×™× ×œ×ª×™× ×•×§ ×œ×œ× ×‘×™×©×•× ×ž××¨×– ×¨×‘×™×¢×™×™×”",
-        "gtin13":"7290000195537", "brand":{"name":"×”××’×™×¡"},
+        "@type":"Product", "name":"מגבונים לחים לתינוק ללא בישום מארז רביעייה",
+        "gtin13":"7290000195537", "brand":{"name":"האגיס"},
         "regularPrice":"28.90", "offers":{"price":"17.90"}
       }</script>
     </head><body>
-      <h1>×ž×’×‘×•× ×™× ×œ×—×™× ×œ×ª×™× ×•×§ ×œ×œ× ×‘×™×©×•× ×ž××¨×– ×¨×‘×™×¢×™×™×”</h1>
-      <div>28.90</div><div>17.90</div><div>×”×ž×—×™×¨ ×‘×ª×•×§×£ ×¢×“ 25.08.2026</div>
-      <div>×‘×¨×§×•×“ ×ž×•×¦×¨: 7290000195537</div>
+      <h1>מגבונים לחים לתינוק ללא בישום מארז רביעייה</h1>
+      <div>28.90</div><div>17.90</div><div>המחיר בתוקף עד 25.08.2026</div>
+      <div>ברקוד מוצר: 7290000195537</div>
     </body></html>"""
     parsed = parse_superpharm_product_html(
         page,
@@ -495,13 +495,13 @@ def test_superpharm_online_product_and_promo_parser():
 
 def test_superpharm_online_multi_buy_parser():
     page = """<html><head><script type="application/ld+json">{
-      "@type":"Product", "name":"×¤×ž×¤×¨×¡ ×—×™×ª×•×œ×™× ×ž×™×“×” 2 39 ×™×—×™×“×•×ª",
-      "gtin13":"8006540156551", "brand":{"name":"×¤×ž×¤×¨×¡"},
+      "@type":"Product", "name":"פמפרס חיתולים מידה 2 39 יחידות",
+      "gtin13":"8006540156551", "brand":{"name":"פמפרס"},
       "offers":{"price":"57.90"}
     }</script></head><body>
-      <h1>×¤×ž×¤×¨×¡ ×—×™×ª×•×œ×™× ×ž×™×“×” 2 39 ×™×—×™×“×•×ª</h1>
-      <div>57.90</div><div>×ž×—×™×¨ ×œ-2 ×™×—×™×“×•×ª 85 â‚ª</div>
-      <div>×‘×¨×§×•×“ ×ž×•×¦×¨: 8006540156551</div>
+      <h1>פמפרס חיתולים מידה 2 39 יחידות</h1>
+      <div>57.90</div><div>מחיר ל-2 יחידות 85 ₪</div>
+      <div>ברקוד מוצר: 8006540156551</div>
     </body></html>"""
     parsed = parse_superpharm_product_html(
         page,
@@ -515,7 +515,7 @@ def test_superpharm_online_multi_buy_parser():
 
 
 def test_superpharm_category_product_url_extraction():
-    page = """<a href="/infants/diapers/item-name/p/625472?source=grid">×ž×•×¦×¨</a>
+    page = """<a href="/infants/diapers/item-name/p/625472?source=grid">מוצר</a>
     <script>{"url":"/infants/wipes/other/p/263254"}</script>"""
     urls = extract_superpharm_product_urls(page)
     assert urls == [
@@ -526,11 +526,11 @@ def test_superpharm_category_product_url_extraction():
 
 def test_superpharm_discovers_all_supported_navigation_categories():
     page = """
-      <a href="/baby/changing-pads/c/100">×ž×©×˜×—×™ ×”×—×ª×œ×” ×•×›×™×¡×•×™×™×</a>
-      <a href="/baby/diaper-cream/c/101">×ž×©×—×ª ×”×—×ª×œ×” ×œ×ª×™× ×•×§</a>
-      <a href="/baby/bath-oil/c/102">×©×ž×Ÿ ×¨×—×¦×” ×œ×ª×™× ×•×§</a>
-      <a href="/baby/body-cream/c/103">×§×¨× ×’×•×£ ×œ×ª×™× ×•×§</a>
-      <a href="/adult/body-cream/c/104">×§×¨× ×’×•×£ ×œ×ž×‘×•×’×¨×™×</a>
+      <a href="/baby/changing-pads/c/100">משטחי החתלה וכיסויים</a>
+      <a href="/baby/diaper-cream/c/101">משחת החתלה לתינוק</a>
+      <a href="/baby/bath-oil/c/102">שמן רחצה לתינוק</a>
+      <a href="/baby/body-cream/c/103">קרם גוף לתינוק</a>
+      <a href="/adult/body-cream/c/104">קרם גוף למבוגרים</a>
     """
     found = extract_superpharm_category_urls(page)
     assert {need for need, _ in found} == {
@@ -642,30 +642,30 @@ def test_cheapersal_price_fallback_normalizes_matching_chain():
         "data": {
             "product": {
                 "barcode": "7290000195537",
-                "name": "×ž×’×‘×•× ×™× ×œ×—×™× ×œ×ª×™× ×•×§ ×œ×œ× ×‘×™×©×•× ×ž××¨×– ×¨×‘×™×¢×™×™×”",
-                "manufacturer": "×”××’×™×¡",
+                "name": "מגבונים לחים לתינוק ללא בישום מארז רביעייה",
+                "manufacturer": "האגיס",
                 "unitQty": "4x56",
             },
             "prices": [
                 {
                     "price": 28.90,
-                    "chain": {"id": "sp", "name": "×¡×•×¤×¨ ×¤××¨×"},
+                    "chain": {"id": "sp", "name": "סופר פארם"},
                     "branch": {
                         "id": "online",
-                        "name": "×¡×•×¤×¨ ×¤××¨× ××•× ×œ×™×™×Ÿ",
+                        "name": "סופר פארם אונליין",
                         "isOnline": True,
                     },
                     "promo": {
                         "promoPrice": 17.90,
-                        "description": "×ž×‘×¦×¢",
+                        "description": "מבצע",
                         "validUntil": "2026-08-31T00:00:00Z",
                         "requiresClub": True,
                     },
                 },
                 {
                     "price": 30.90,
-                    "chain": {"id": "other", "name": "×¨×©×ª ××—×¨×ª"},
-                    "branch": {"id": "1", "name": "××—×¨"},
+                    "chain": {"id": "other", "name": "רשת אחרת"},
+                    "branch": {"id": "1", "name": "אחר"},
                 },
             ],
         },
@@ -706,19 +706,19 @@ def test_cheapersal_shared_lookup_fetches_once_for_both_retailers():
         "data": {
             "product": {
                 "barcode": "7290000000101",
-                "name": "×¡×‘×•×Ÿ ×¨×—×¦×” ×œ×ª×™× ×•×§ 500 ×ž×´×œ",
+                "name": "סבון רחצה לתינוק 500 מ״ל",
                 "manufacturer": "Dr. Fischer",
             },
             "prices": [
                 {
                     "price": 22.9,
-                    "chain": {"name": "×¡×•×¤×¨ ×¤××¨×"},
-                    "branch": {"id": "sp-1", "name": "×¡×•×¤×¨ ×¤××¨× ×©×“×¨×•×ª", "city": "×©×“×¨×•×ª"},
+                    "chain": {"name": "סופר פארם"},
+                    "branch": {"id": "sp-1", "name": "סופר פארם שדרות", "city": "שדרות"},
                 },
                 {
                     "price": 19.9,
                     "chain": {"name": "KSP"},
-                    "branch": {"id": "online", "name": "KSP ××•× ×œ×™×™×Ÿ", "isOnline": True},
+                    "branch": {"id": "online", "name": "KSP אונליין", "isOnline": True},
                 },
             ],
         },
