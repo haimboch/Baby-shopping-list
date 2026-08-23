@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.47</title>
+<title>Baby Smart List · Dashboard v0.48</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -176,6 +176,120 @@ body{color:var(--ink)}
 @media(min-width:620px){.category-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.subcategory-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.catalog-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.dashboard-shell{padding-inline:8px}.dashboard-top{gap:6px;padding:6px}.header-actions{gap:5px}.header-action{width:52px}.header-action small{font-size:.56rem}.location-control{padding-inline:8px;gap:7px}.location-control .control-icon{width:31px;height:31px}.category-card{min-height:124px;padding:12px}.dashboard-welcome h1{font-size:1.38rem}.readiness-grid{grid-template-columns:1fr}}
 
+/* v0.48 — approved UI/UX integration */
+:root{
+  --bg:#f6f5fa;
+  --card:#fff;
+  --surface:#fff;
+  --surface-muted:#fbfaff;
+  --text:#29263d;
+  --ink:#29263d;
+  --muted:#777386;
+  --soft-ink:#777386;
+  --line:#ebe9f1;
+  --p:#6555e7;
+  --violet:#6555e7;
+  --violet-dark:#5140d0;
+  --brand-soft:#f0edff;
+  --lilac:#f0edff;
+  --ok:#16815f;
+  --mint:#e8f7f0;
+  --low:#b57924;
+  --amber:#fff4df;
+  --out:#ba4759;
+  --rose:#fff0f2;
+  --shadow:0 13px 34px rgba(42,34,82,.07);
+}
+html{scroll-behavior:smooth;background:var(--bg)}
+body{min-width:320px;background:
+  radial-gradient(circle at 92% 4%,rgba(113,92,234,.08),transparent 26rem),
+  radial-gradient(circle at 4% 92%,rgba(57,177,133,.07),transparent 24rem),
+  var(--bg);color:var(--ink);font-family:"Rubik","Assistant",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;line-height:1.45}
+button,input,select,textarea{font:inherit}button{color:inherit;-webkit-tap-highlight-color:transparent}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid rgba(101,85,231,.22);outline-offset:2px}
+.shell{width:min(1120px,100%);max-width:none;padding:18px 18px 116px}
+.card,.surface-section,.catalog-card,.store-card{border-color:var(--line);box-shadow:var(--shadow)}
+.btn{min-height:46px;border-radius:14px;padding:10px 14px;font-weight:760;transition:transform .16s ease,box-shadow .16s ease,background .16s ease}
+.btn:active{transform:scale(.985)}
+.btn.primary,.primary{border-color:var(--p);background:linear-gradient(135deg,#7463ef,#5947d8);color:#fff;box-shadow:0 9px 20px rgba(101,85,231,.18)}
+.btn.soft,.soft{border-color:#e3defe;background:#f4f1ff;color:var(--violet-dark);box-shadow:none}
+.btn.danger{background:#fff5f6;color:#a8394c;border-color:#f4d8dd}
+.msg{border:1px solid #e2ddff;background:#f7f5ff;color:#5140d0}.msg.err{border-color:#f1d5da;background:#fff2f4;color:#a8394c}
+
+/* Login and onboarding */
+.center{background:linear-gradient(145deg,#f7f6fc,#eeecfb);padding:22px}
+.panel{position:relative;width:min(480px,100%);padding:27px;border:1px solid rgba(255,255,255,.86);border-radius:28px;box-shadow:0 24px 70px rgba(49,38,103,.12);overflow:hidden}
+.panel:before{content:"";position:absolute;top:-80px;left:-70px;width:190px;height:190px;border-radius:50%;background:rgba(101,85,231,.08)}
+.panel .brand{position:relative;margin-bottom:7px}.logo{width:52px;height:52px;border-radius:18px;background:linear-gradient(145deg,#7969f1,#5744d2);box-shadow:0 11px 24px rgba(101,85,231,.24)}
+.panel h1{font-size:1.36rem}.auth-copy{font-size:.83rem;line-height:1.75}
+.field label{font-size:.78rem;font-weight:700;color:#514e60}.field input,.field select,.field textarea{min-height:49px;border-color:#e4e1ec;border-radius:14px;background:#fdfcff;transition:border-color .15s,box-shadow .15s}.field input:focus,.field select:focus,.field textarea:focus{border-color:#aca2f6;box-shadow:0 0 0 4px rgba(101,85,231,.08);outline:0}
+.panel .actions{display:grid;grid-template-columns:1fr 1fr;margin-top:17px}
+.onboard-page{background:linear-gradient(145deg,#f7f6fc,#eeecfb);padding-top:28px}.onboarding-shell{width:min(720px,100%)}
+.onboarding-brand{padding:0 5px}.onboarding-brand .brandcopy h1{font-size:1.5rem}.onboard-time{border:0;background:#e8f7f0;color:#16815f;padding:8px 12px}
+.wizard{padding:24px;border-radius:26px;border-color:#e7e3f2;box-shadow:0 22px 55px rgba(44,36,91,.1)}
+.family-choice{min-height:92px;border-radius:20px;padding:16px;transition:transform .16s,box-shadow .16s,border-color .16s}.family-choice:hover{transform:translateY(-2px);box-shadow:0 11px 25px rgba(45,37,90,.08)}.family-choice.primary-choice{border-color:#d6cffd;background:linear-gradient(145deg,#fbfaff,#f0edff)}
+.family-choice-icon{width:49px;height:49px;border-radius:17px;background:#fff;box-shadow:0 6px 15px rgba(46,40,79,.07)}
+.stepper-item:before{height:6px}.choice-card{border-radius:18px;padding:14px}.qty-row{border-radius:16px;padding:13px}
+
+/* Existing header — functionality is unchanged */
+.dashboard-top{top:8px;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin:0 0 24px;padding:9px;border:1px solid rgba(232,229,241,.92);border-radius:23px;background:rgba(250,249,253,.88);box-shadow:0 12px 32px rgba(41,35,75,.07);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.location-control{min-height:62px;border:1px solid #f1eff5;border-radius:17px;padding:8px 10px;background:#fff;box-shadow:0 4px 14px rgba(47,42,70,.035)}
+.location-control .control-icon{width:39px;height:39px;border-radius:14px;background:var(--brand-soft);font-size:1.08rem}.location-control small{font-size:.67rem}.location-control b{font-size:.86rem}.location-control .chevron{font-size:1rem}
+.header-actions{gap:8px}.header-action{width:62px;min-height:62px;border:1px solid #f1eff5;border-radius:17px;background:#fff;box-shadow:0 4px 14px rgba(47,42,70,.035)}.header-action .action-icon{font-size:1.18rem}.header-action small{font-size:.61rem}.notif-badge{top:-4px;left:-4px;border-width:2px}
+
+/* Home */
+.dashboard-welcome{margin:5px 4px 19px}.dashboard-welcome .eyebrow{display:inline-flex;align-items:center;min-height:24px;color:var(--violet);font-size:.78rem}.dashboard-welcome h1{margin:4px 0 3px;font-size:clamp(1.55rem,3vw,2rem);letter-spacing:-.035em}.dashboard-welcome p{font-size:.88rem}
+.home-overview{position:relative;min-height:186px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:22px;padding:25px 28px;border-radius:28px;background:linear-gradient(135deg,#7968f2,#5744d2);color:#fff;overflow:hidden;box-shadow:0 18px 42px rgba(88,68,210,.22)}
+.home-overview:before,.home-overview:after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.08)}.home-overview:before{width:240px;height:240px;left:-90px;top:-135px}.home-overview:after{width:150px;height:150px;right:42%;bottom:-115px}
+.home-overview-copy{position:relative;z-index:1}.home-overview h2{margin:0;font-size:clamp(1.45rem,3vw,2.15rem);line-height:1.25;letter-spacing:-.025em}.home-overview p{max-width:520px;margin:10px 0 0;color:rgba(255,255,255,.82);font-size:.88rem}
+.home-attention{display:inline-flex;align-items:center;gap:8px;margin-top:18px;padding:7px 11px;border-radius:999px;background:rgba(255,255,255,.16);font-size:.73rem}.home-attention>span{display:grid;width:20px;height:20px;place-items:center;border-radius:50%;background:rgba(255,255,255,.17);font-weight:900}.home-attention b{font-weight:720}
+.home-baby-mark{position:relative;z-index:1;width:98px;height:98px;display:grid;place-items:center;border:2px solid rgba(255,255,255,.25);border-radius:34px;background:rgba(255,255,255,.1);transform:rotate(-4deg)}.home-baby-mark:before{content:"";position:absolute;width:54px;height:54px;border:3px solid rgba(255,255,255,.86);border-radius:50%}.home-baby-mark:after{content:"••";position:absolute;top:34px;letter-spacing:15px;padding-right:15px;font-size:.9rem}.home-baby-mark span{margin-top:25px;font-size:1.5rem;font-weight:400}
+.home-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0 24px}.home-summary article{min-width:0;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:11px;align-items:center;padding:15px;border:1px solid var(--line);border-radius:19px;background:#fff;box-shadow:0 8px 24px rgba(43,38,72,.045)}.home-summary .summary-icon{grid-row:1/3;display:grid;width:39px;height:39px;place-items:center;border-radius:13px;font-size:.95rem;font-weight:900}.summary-icon.violet{background:var(--brand-soft);color:var(--violet)}.summary-icon.amber{background:var(--amber);color:var(--low)}.summary-icon.mint{background:var(--mint);color:var(--ok)}.home-summary strong{font-size:1.22rem;line-height:1.1}.home-summary small{overflow:hidden;color:var(--muted);font-size:.68rem;text-overflow:ellipsis;white-space:nowrap}
+.dashboard-board{display:grid;grid-template-columns:minmax(0,1.24fr) minmax(340px,.78fr);gap:22px;align-items:start}.dashboard-main,.dashboard-side{display:grid;gap:18px}.dashboard-section{margin-top:0}.surface-section,.readiness-section{padding:18px;border:1px solid var(--line);border-radius:24px;background:#fff;box-shadow:var(--shadow)}
+.dashboard-section-head{margin:0 1px 15px;align-items:start}.dashboard-section-head h2{margin:0;font-size:1.11rem;letter-spacing:-.01em}.dashboard-section-head p{margin-top:4px;font-size:.73rem}.count-pill{padding:6px 9px;border:0;background:var(--brand-soft);color:var(--violet-dark);font-size:.66rem}
+.inventory-toolbar{grid-template-columns:minmax(0,1fr) auto;gap:9px;margin-bottom:14px}.inventory-toolbar .btn{min-height:49px}.inventory-section #dashboardInventory>section{margin-bottom:12px!important}.inventory-section #dashboardInventory>section>h3{display:flex;align-items:center;gap:7px;margin:8px 3px 2px!important;font-size:.86rem!important;color:#595568!important}.inventory-section #dashboardInventory>section>h3:before{content:"";width:7px;height:7px;border-radius:50%;background:#9a8ff0}
+#dashboardInventory .product{padding:15px!important;border-color:#eceaf2!important;border-radius:19px!important;box-shadow:0 7px 20px rgba(43,38,72,.045)!important;transition:transform .16s ease,border-color .16s ease}#dashboardInventory .product:hover{transform:translateY(-1px);border-color:#dbd6fa!important}#dashboardInventory .product .ph{align-items:center}#dashboardInventory .product h3{font-size:.95rem}#dashboardInventory .product .product-photo{width:64px;height:64px;flex-basis:64px;border-radius:18px;background:#faf9ff}#dashboardInventory .product select{min-height:43px!important;border-color:#e6e3ec!important;border-radius:12px!important;background:#fdfcff!important;padding-inline:9px!important}#dashboardInventory .product .statuses{gap:6px!important;margin-top:12px}#dashboardInventory .product .sbtn{min-height:42px;border-radius:11px;background:#faf9fc;border-color:#ece9f2;font-weight:650}#dashboardInventory .product .sbtn.cur{box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}#dashboardInventory .product>.btn{min-height:45px!important;border-radius:13px!important}
+.readiness-section{background:linear-gradient(145deg,#fbfaff,#f6f8fc)}.readiness-grid{gap:9px}.readiness-card{min-height:80px;border-radius:16px;padding:11px}.readiness-card .readiness-icon{width:34px;height:34px;border-radius:11px}.readiness-note{padding:9px 10px;border-radius:12px;background:rgba(255,255,255,.75)}
+.search-section .category-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.category-card{min-height:135px;padding:14px;border-radius:19px;box-shadow:none;transition:transform .16s ease,box-shadow .16s ease}.category-card:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(45,38,87,.07)}.category-emoji{width:46px;height:46px;border-radius:16px}.category-card b{font-size:.91rem}.category-card span.category-meta{font-size:.66rem}
+.barcode-section{margin:0}.barcode-entry{min-height:82px;border-radius:23px;padding:16px 17px;box-shadow:0 14px 29px rgba(101,85,231,.22)}.barcode-entry .barcode-icon{width:50px;height:50px;border-radius:17px}.barcode-entry b{font-size:.92rem}.barcode-entry small{font-size:.69rem}
+.savings-section .savings-panel{padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}.savings-grid{gap:10px}.savings-tile{padding:13px;border-radius:16px;background:#fbfbfd}.savings-tile strong{font-size:1.32rem}.savings-caption{padding:9px 10px;border-radius:12px;background:#f8f7fc}
+
+/* Inner pages, baskets and lists */
+.app-page:not(#dashboardPage){width:min(760px,100%);margin:0 auto}.page-head{margin:7px 2px 22px}.back-button{width:45px;height:45px;flex-basis:45px;border-radius:15px;color:var(--violet-dark);box-shadow:0 5px 15px rgba(42,37,70,.04)}.page-head-copy small{font-size:.72rem}.page-head-copy h1{font-size:1.5rem;letter-spacing:-.025em}.page-head-copy p{font-size:.78rem}
+.catalog-list{gap:12px}.catalog-card{padding:15px;border-radius:20px;box-shadow:0 8px 24px rgba(43,38,72,.055)}.catalog-card .product-photo{background:#faf9ff}.catalog-card .actions .btn{min-height:44px;border-radius:12px}
+.shopping-progress{position:relative;min-height:62px;padding:14px 16px;border:1px solid #dfd9ff;border-radius:18px;background:linear-gradient(145deg,#f7f5ff,#eeebff);font-size:.8rem;display:flex;align-items:center}
+.shopping-item{gap:12px}.shopping-item.is-bought{background:#f2fbf6}.shopping-option{padding:12px;border-radius:16px}.shopping-option.alternative{background:#f0faf5;border-color:#cae8da}.shopping-complete{padding:11px;border-radius:13px}.basket-state{padding:6px 9px}.basket-alert{padding:11px;border-radius:13px}.completion-option{padding:11px;border-radius:14px}.basket-actions{gap:9px}.basket-actions .btn,.shopping-option .btn{min-height:45px;border-radius:12px}
+.result-card{padding:14px;border-radius:18px;box-shadow:0 7px 21px rgba(43,38,72,.045)}.result-card.best{border-color:#7a6bea;background:linear-gradient(145deg,#fff,#f7f5ff)}.price{color:var(--violet-dark)}
+.subcategory-card{padding:14px;border-radius:20px}.catalog-search input{height:50px;border-radius:16px;background:#fff}
+
+/* Dialogs */
+dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px rgba(28,23,59,.25)}dialog::backdrop{background:rgba(30,26,48,.48);backdrop-filter:blur(4px)}.dlg{max-height:calc(100dvh - 24px);overflow:auto;padding:21px}.dh{position:sticky;top:-21px;z-index:2;margin:-21px -21px 8px;padding:18px 21px 13px;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-bottom:1px solid #f0eef4}.dh h3{margin:0;font-size:1.15rem}.code{border-radius:15px;background:var(--brand-soft);color:var(--violet-dark)}
+.manager-category{border-radius:17px;background:#fdfcff}.manager-item{border-radius:14px;background:#fff}.manager-extra select{min-height:42px;border-radius:11px}.family-summary{padding:13px;border-radius:17px;background:#faf9ff}.family-member{padding:12px;border-radius:16px}.member-avatar{width:41px;height:41px;border-radius:14px}.role-tag{padding:5px 8px}
+
+/* Mobile bottom navigation */
+.app-bottom-nav{position:fixed;z-index:45;right:50%;bottom:max(10px,env(safe-area-inset-bottom));width:min(590px,calc(100% - 22px));transform:translateX(50%);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:7px;border:1px solid rgba(230,227,239,.95);border-radius:23px;background:rgba(255,255,255,.93);box-shadow:0 16px 42px rgba(36,30,67,.16);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.app-nav-item{min-height:56px;display:grid;place-items:center;align-content:center;gap:2px;border:0;border-radius:17px;background:transparent;color:#898596}.app-nav-item.active{background:var(--brand-soft);color:var(--violet-dark)}.app-nav-icon{font-size:1.15rem;font-weight:760;line-height:1}.app-nav-item small{font-size:.62rem;font-weight:760}.app-footnote{margin:30px 0 105px}.fab{bottom:92px;z-index:44}
+
+@media(max-width:900px){
+  .shell{width:min(760px,100%)}
+  .dashboard-board{grid-template-columns:1fr}.dashboard-side{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.search-section{grid-column:1/-1}.barcode-section,.savings-section{height:100%}
+}
+@media(max-width:620px){
+  .shell{padding:9px 9px 105px}.dashboard-top{top:5px;margin-bottom:19px;padding:7px;border-radius:20px}.location-control{min-height:55px;padding:6px 7px;gap:7px}.location-control .control-icon{width:34px;height:34px}.header-action{width:55px;min-height:55px;border-radius:15px}.header-actions{gap:6px}
+  .dashboard-welcome{margin-inline:5px}.dashboard-welcome h1{font-size:1.55rem}
+  .home-overview{min-height:165px;padding:20px;border-radius:24px}.home-overview h2{font-size:1.42rem}.home-overview p{font-size:.77rem}.home-baby-mark{width:70px;height:70px;border-radius:25px}.home-baby-mark:before{width:40px;height:40px}.home-baby-mark:after{top:23px;font-size:.68rem;letter-spacing:11px;padding-right:11px}.home-baby-mark span{margin-top:18px;font-size:1.1rem}.home-attention{margin-top:14px;font-size:.67rem}
+  .home-summary{gap:7px;margin:10px 0 17px}.home-summary article{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:10px;border-radius:16px}.home-summary .summary-icon{width:31px;height:31px;border-radius:11px}.home-summary strong{font-size:1.08rem}.home-summary small{width:100%;font-size:.59rem}
+  .dashboard-board,.dashboard-main,.dashboard-side{gap:13px}.dashboard-side{grid-template-columns:1fr}.search-section{grid-column:auto}.surface-section,.readiness-section{padding:14px;border-radius:21px}.dashboard-section-head{margin-bottom:12px}.dashboard-section-head h2{font-size:1.03rem}.inventory-toolbar{grid-template-columns:minmax(0,1fr) auto;gap:7px}.inventory-toolbar .btn{padding-inline:10px;font-size:.72rem}
+  #dashboardInventory .product{padding:12px!important;border-radius:17px!important}#dashboardInventory .product .product-photo{width:57px;height:57px;flex-basis:57px}#dashboardInventory .product .statuses{gap:4px!important}#dashboardInventory .product .sbtn{padding-inline:2px;font-size:.65rem}
+  .readiness-grid{grid-template-columns:1fr}.search-section .category-grid{gap:8px}.category-card{min-height:124px;padding:12px}.barcode-entry{min-height:76px;padding:13px;border-radius:20px}.barcode-entry .barcode-icon{width:46px;height:46px}
+  .page-head{margin-top:8px}.page-head-copy h1{font-size:1.3rem}.catalog-list{grid-template-columns:1fr}.catalog-card{padding:13px;border-radius:18px}.panel{padding:22px;border-radius:24px}.panel .actions{grid-template-columns:1fr}.wizard{padding:17px;border-radius:22px}.family-choice{padding:13px;min-height:84px}
+  .app-bottom-nav{bottom:max(7px,env(safe-area-inset-bottom));width:calc(100% - 14px);padding:6px;border-radius:20px}.app-nav-item{min-height:52px;border-radius:15px}.app-footnote{margin-bottom:94px}
+}
+@media(max-width:380px){
+  .home-overview{grid-template-columns:1fr}.home-baby-mark{display:none}.home-overview h2{font-size:1.33rem}.location-control b{font-size:.75rem}.header-action{width:50px}.header-action small{font-size:.55rem}.summary-icon{display:none!important}.home-summary article{padding:9px}.home-summary small{white-space:normal}.search-section .category-grid{grid-template-columns:1fr 1fr}.category-card{min-height:115px}.manager-extra,.savings-grid,.basket-actions{grid-template-columns:1fr}.inventory-toolbar .inventory-edit{font-size:0}.inventory-toolbar .inventory-edit:after{content:"עריכה";font-size:.72rem}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
 </style>
 </head>
 <body>
@@ -283,34 +397,55 @@ body{color:var(--ink)}
       <p>כל המוצרים והמחירים למשפחה, במקום אחד.</p>
     </div>
 
-    <section class="dashboard-section readiness-section" aria-label="בדיקת מוכנות">
-      <div class="dashboard-section-head"><div><h2>✅ בדיקת מוכנות</h2><p>מוודאים שהמלאי, הסל והמחירים מוכנים לשימוש</p></div></div>
-      <div class="readiness-grid" id="mvpReadiness"></div>
+    <section class="home-overview" aria-label="תמונת מצב משפחתית">
+      <div class="home-overview-copy">
+        <h2>הבית מסודר יותר.<br>הקניות פשוטות יותר.</h2>
+        <p>המלאי, המחירים והמשפחה שלכם מתעדכנים במקום אחד.</p>
+        <span class="home-attention"><span aria-hidden="true">!</span><b id="heroAttention">טוען תמונת מצב…</b></span>
+      </div>
+      <div class="home-baby-mark" aria-hidden="true"><span>⌣</span></div>
     </section>
 
-    <section class="dashboard-section">
-      <div class="dashboard-section-head"><div><h2>📦 ניהול מלאי</h2><p>המוצרים שלכם בבית והמצב העדכני שלהם</p></div><span class="count-pill" id="dashboardTracked">0 במעקב</span></div>
-      <div class="inventory-toolbar"><button class="btn primary" id="createShoppingBasket">🛒 רשימת קניות חכמה</button><button class="btn soft inventory-edit" id="manageInventory">⚙️ עריכת מלאי</button></div>
-      <div id="dashboardInventory" style="display:grid;gap:10px"></div>
+    <section class="home-summary" aria-label="סיכום מהיר">
+      <article><span class="summary-icon violet" aria-hidden="true">□</span><strong id="heroTrackedSummary">0</strong><small>מוצרים במעקב</small></article>
+      <article><span class="summary-icon amber" aria-hidden="true">!</span><strong id="heroAttentionSummary">0</strong><small>דורשים חידוש</small></article>
+      <article><span class="summary-icon mint" aria-hidden="true">₪</span><strong id="heroSavingsSummary">0</strong><small>חיסכון החודש</small></article>
     </section>
 
-    <section class="dashboard-section">
-      <div class="dashboard-section-head"><div><h2>🔎 חיפוש מוצר</h2><p>בחרו קטגוריה כדי להגיע למוצרים</p></div></div>
-      <div class="category-grid" id="categoryGrid"></div>
-    </section>
+    <div class="dashboard-board">
+      <div class="dashboard-main">
+        <section class="dashboard-section surface-section inventory-section" id="inventorySection">
+          <div class="dashboard-section-head"><div><h2>ניהול מלאי</h2><p>המוצרים שלכם בבית והמצב העדכני שלהם</p></div><span class="count-pill" id="dashboardTracked">0 במעקב</span></div>
+          <div class="inventory-toolbar"><button class="btn primary" id="createShoppingBasket">🛒 רשימת קניות חכמה</button><button class="btn soft inventory-edit" id="manageInventory">⚙️ עריכת מלאי</button></div>
+          <div id="dashboardInventory" style="display:grid;gap:10px"></div>
+        </section>
 
-    <section class="dashboard-section">
-      <button class="barcode-entry" id="barcodeStart">
-        <span class="barcode-icon">▥</span>
-        <span><b>איתור מוצר בצילום ברקוד</b><small>צלמו את הברקוד שעל האריזה ונאתר את המוצר</small></span>
-        <span class="barcode-arrow">←</span>
-      </button>
-    </section>
+        <section class="dashboard-section readiness-section" aria-label="בדיקת מוכנות">
+          <div class="dashboard-section-head"><div><h2>בדיקת מוכנות</h2><p>מוודאים שהמלאי, הסל והמחירים מוכנים לשימוש</p></div></div>
+          <div class="readiness-grid" id="mvpReadiness"></div>
+        </section>
+      </div>
 
-    <section class="dashboard-section">
-      <div class="dashboard-section-head"><div><h2>💰 חיסכון חודשי</h2><p>מה שכבר חסכתם ומה עוד אפשר לחסוך</p></div></div>
-      <article class="savings-panel" id="monthlySavings"><div class="savings-month"><span id="savingsMonth">החודש</span><span id="savingsPurchases">טוען רכישות…</span></div><div class="savings-grid"><div class="savings-tile"><small>✓ חיסכון בפועל</small><strong id="actualSavings">0.00 ₪</strong></div><div class="savings-tile potential"><small>💡 חיסכון פוטנציאלי</small><strong id="potentialSavings">0.00 ₪</strong></div></div><div class="savings-caption" id="savingsCaption">החיסכון בפועל מתעדכן כשמסמנים מוצר כנקנה. תמ״ל לא מוחלף אוטומטית.</div></article>
-    </section>
+      <div class="dashboard-side">
+        <section class="dashboard-section surface-section search-section" id="searchSection">
+          <div class="dashboard-section-head"><div><h2>חיפוש מוצר</h2><p>ניווט מהיר לפי מה שאתם צריכים</p></div></div>
+          <div class="category-grid" id="categoryGrid"></div>
+        </section>
+
+        <section class="dashboard-section barcode-section">
+          <button class="barcode-entry" id="barcodeStart">
+            <span class="barcode-icon" aria-hidden="true">▥</span>
+            <span><b>איתור מוצר בצילום ברקוד</b><small>צלמו את הברקוד שעל האריזה ונאתר את המוצר</small></span>
+            <span class="barcode-arrow" aria-hidden="true">←</span>
+          </button>
+        </section>
+
+        <section class="dashboard-section surface-section savings-section" id="savingsSection">
+          <div class="dashboard-section-head"><div><h2>חיסכון חודשי</h2><p>מה שכבר חסכתם ומה עוד אפשר לחסוך</p></div></div>
+          <article class="savings-panel" id="monthlySavings"><div class="savings-month"><span id="savingsMonth">החודש</span><span id="savingsPurchases">טוען רכישות…</span></div><div class="savings-grid"><div class="savings-tile"><small>✓ חיסכון בפועל</small><strong id="actualSavings">0.00 ₪</strong></div><div class="savings-tile potential"><small>💡 חיסכון פוטנציאלי</small><strong id="potentialSavings">0.00 ₪</strong></div></div><div class="savings-caption" id="savingsCaption">החיסכון בפועל מתעדכן כשמסמנים מוצר כנקנה. תמ״ל לא מוחלף אוטומטית.</div></article>
+        </section>
+      </div>
+    </div>
   </section>
 
   <section class="app-page hidden" id="shoppingBasketPage">
@@ -372,8 +507,14 @@ body{color:var(--ink)}
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.47</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.48</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
+<nav class="app-bottom-nav" aria-label="ניווט ראשי">
+  <button class="app-nav-item active" data-app-nav="dashboard" aria-current="page"><span class="app-nav-icon" aria-hidden="true">⌂</span><small>הבית</small></button>
+  <button class="app-nav-item" data-app-nav="inventory"><span class="app-nav-icon" aria-hidden="true">□</span><small>המלאי</small></button>
+  <button class="app-nav-item" data-app-nav="shopping"><span class="app-nav-icon" aria-hidden="true">⌑</span><small>קניות</small></button>
+  <button class="app-nav-item" data-app-nav="savings"><span class="app-nav-icon" aria-hidden="true">₪</span><small>חיסכון</small></button>
+</nav>
 </div>
 
 <dialog id="pdlg"><form method="dialog" class="dlg" id="pform">
@@ -725,9 +866,17 @@ function subTrackedItems(key){
   return items.filter(p=>p.need_key===key)
 }
 function subCatalogRows(key){return catalog.filter(p=>p.need_key===key&&p.active!==false)}
+function setBottomNav(name){
+  document.querySelectorAll("[data-app-nav]").forEach(button=>{
+    const active=button.dataset.appNav===name;
+    button.classList.toggle("active",active);
+    if(active)button.setAttribute("aria-current","page");else button.removeAttribute("aria-current");
+  })
+}
 function appPage(id){
   ["dashboardPage","categoryPage","catalogPage","inventoryWorkspace","productPricesPage","shoppingBasketPage","shoppingDetailsPage"].forEach(x=>$(x).classList.toggle("hidden",x!==id));
   $("add").classList.toggle("dashboard-hidden",id!=="inventoryWorkspace");
+  setBottomNav(id==="shoppingBasketPage"||id==="shoppingDetailsPage"?"shopping":id==="dashboardPage"?"dashboard":"inventory");
   window.scrollTo({top:0,behavior:"smooth"})
 }
 function healthAgeLabel(value){
@@ -787,13 +936,18 @@ function renderDashboard(){
   if(!household)return;
   const hour=new Date().getHours();
   const greeting=hour<12?"בוקר טוב":hour<17?"צהריים טובים":hour<21?"ערב טוב":"לילה טוב";
-  $("dashboardGreeting").textContent=`${greeting} 👋`;
+  const displayName=String(session?.user?.user_metadata?.full_name||"").trim().split(/\s+/)[0];
+  $("dashboardGreeting").textContent=`${greeting}${displayName?`, ${displayName}`:""} 👋`;
   renderMvpReadiness();
   const priority={urgent:0,out:0,low:1,ok:2};
   const unique=new Map();
   [...items].sort((a,b)=>(priority[a.stock_status]??2)-(priority[b.stock_status]??2)).forEach(p=>{const key=p.need_key&&p.need_key!=="other"?p.need_key:`other:${p.name}`;if(!unique.has(key))unique.set(key,p)});
   const sorted=[...unique.values()];
+  const attention=sorted.filter(product=>["low","out","urgent"].includes(product.stock_status)).length;
   $("dashboardTracked").textContent=`${sorted.length} במעקב`;
+  $("heroTrackedSummary").textContent=String(sorted.length);
+  $("heroAttentionSummary").textContent=String(attention);
+  $("heroAttention").textContent=attention?`${attention} ${attention===1?"מוצר דורש":"מוצרים דורשים"} תשומת לב`:"הכול מסודר כרגע";
   const grouped=new Map();
   sorted.forEach(p=>{const key=p.category||NEEDS[p.need_key]?.category||"כללי";if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(p)});
   $("dashboardInventory").innerHTML=sorted.length?[...grouped].map(([category,products])=>`<section style="display:grid;gap:9px;margin-bottom:8px"><h3 style="font-size:.92rem;margin:5px 3px 0;color:var(--soft-ink)">${esc(category)}</h3>${products.map(p=>{
@@ -1416,6 +1570,7 @@ function renderMonthlySavings(){
   $("savingsPurchases").textContent=monthlySavings.purchaseCount?`${monthlySavings.purchaseCount} רכישות שנרשמו`:"עדיין אין רכישות החודש";
   $("actualSavings").textContent=formatMoney(monthlySavings.actual);
   $("potentialSavings").textContent=formatMoney(monthlySavings.potential);
+  if($("heroSavingsSummary"))$("heroSavingsSummary").textContent=Math.round(monthlySavings.actual).toLocaleString("he-IL");
   $("savingsCaption").textContent=monthlySavings.potential>0
     ?"החיסכון הפוטנציאלי מחושב לפי חלופות זולות יותר למוצרים שבמלאי. תמ״ל לעולם אינו מוחלף."
     :"החיסכון בפועל מתעדכן כשמסמנים קניתי. תמ״ל לא מוחלף אוטומטית.";
@@ -2212,6 +2367,18 @@ $("catalogProducts").onclick=e=>{
 document.querySelectorAll("[data-back-dashboard]").forEach(b=>b.onclick=openDashboard);
 $("mvpReadiness").onclick=e=>{const b=e.target.closest("[data-readiness-action]");if(!b)return;const action=b.dataset.readinessAction;if(action==="location")return openLocation();if(action==="data")return openDataHealth();if(action==="preferences")return openInventoryManager();openDashboard();setTimeout(()=>{const selector=b.dataset.readinessProduct?`[data-inventory-search="${b.dataset.readinessProduct}"]`:"#dashboardInventory";document.querySelector(selector)?.scrollIntoView({behavior:"smooth",block:"center"})},60)};
 $("createShoppingBasket").onclick=openShoppingBasket;
+const bottomNav=document.querySelector(".app-bottom-nav");
+if(bottomNav)bottomNav.onclick=e=>{
+  const button=e.target.closest("[data-app-nav]");if(!button)return;
+  const target=button.dataset.appNav;
+  if(target==="shopping")return openShoppingBasket();
+  openDashboard();
+  if(target==="inventory"||target==="savings"){
+    setBottomNav(target);
+    const selector=target==="inventory"?"#inventorySection":"#savingsSection";
+    setTimeout(()=>document.querySelector(selector)?.scrollIntoView({behavior:"smooth",block:"start"}),70)
+  }
+};
 $("basketResults").onclick=e=>{const button=e.target.closest("[data-open-basket]");if(button)return openBasketDetails(button.dataset.openBasket)};
 $("backToBaskets").onclick=()=>appPage("shoppingBasketPage");
 $("shoppingItems").onclick=e=>{const button=e.target.closest("[data-basket-buy]");if(button)return markBasketPurchased(button.dataset.basketBuy,button.dataset.basketChoice,button.dataset.basketSuggestion)};
