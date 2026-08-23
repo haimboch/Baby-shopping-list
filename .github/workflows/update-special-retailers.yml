@@ -1,0 +1,91 @@
+name: Update KSP and Super-Pharm
+
+on:
+  schedule:
+    # Hourly during the first catalog pass. The worker automatically skips
+    # unnecessary runs after bootstrap and returns to four-hour maintenance.
+    - cron: "47 * * * *"
+      timezone: "Asia/Jerusalem"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Uses the same group as the supermarket flow so both jobs never compete for
+# the shared provider's ten-requests-per-minute budget.
+concurrency:
+  group: baby-price-update
+  cancel-in-progress: false
+
+jobs:
+  update-special-retailers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CHEAPERSAL_API_KEY: ${{ secrets.CHEAPERSAL_API_KEY }}
+      KSP_RELAY_URL: ${{ secrets.KSP_RELAY_URL }}
+      KSP_RELAY_TOKEN: ${{ secrets.KSP_RELAY_TOKEN }}
+      ENABLED_CHAINS: "super_pharm,ksp"
+      ENRICHMENT_LIMIT: "0"
+      SPECIAL_RETAILER_BATCH_SIZE: "48"
+      SPECIAL_RETAILER_MAINTENANCE_HOURS: "4"
+      CHEAPERSAL_PRICE_LOOKUP_LIMIT: "48"
+      CHEAPERSAL_ONLINE_ONLY: "false"
+      CHEAPERSAL_MIN_INTERVAL_SECONDS: "7"
+      CHEAPERSAL_MAX_RATE_RETRIES: "1"
+      KSP_MAX_ITEMS: "120"
+      KSP_CATEGORY_PAGES: "3"
+      KSP_SEARCH_LIMIT: "48"
+      SUPER_PHARM_FULL_FILE_LIMIT: "30"
+      SUPER_PHARM_INCREMENTAL_FILE_LIMIT: "30"
+      SUPER_PHARM_PROMO_FULL_FILE_LIMIT: "30"
+      SUPER_PHARM_PROMO_INCREMENTAL_FILE_LIMIT: "30"
+      SUPER_PHARM_ONLINE_MAX_ITEMS: "120"
+      SUPER_PHARM_ONLINE_CATEGORY_PAGES: "3"
+      PRODUCT_IMAGE_LOOKUP_LIMIT: "48"
+      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "4"
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Self test
+        run: python self_test.py
+
+      - name: Validate KSP relay configuration
+        shell: bash
+        run: |
+          health_code="$(curl --silent --output /dev/null --write-out '%{http_code}' "${KSP_RELAY_URL}/health" || true)"
+          auth_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${KSP_RELAY_TOKEN}" \
+            "${KSP_RELAY_URL}/ksp/category?search=7290000263359" || true)"
+          echo "KSP relay health HTTP ${health_code}; authorized probe HTTP ${auth_code}"
+          if [ "${auth_code}" = "401" ]; then
+            echo "::warning title=KSP relay authorization::Cloudflare RELAY_TOKEN and GitHub KSP_RELAY_TOKEN do not match, or the upstream rejected authorization."
+          fi
+
+      - name: Update KSP and Super-Pharm batches
+        run: python run_worker.py --chains super_pharm,ksp
+
+      - name: Generate price notifications
+        shell: bash
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            "${SUPABASE_URL}/rest/v1/rpc/generate_price_notification_events_v035" \
+            --header "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            --header "Content-Type: application/json" \
+            --data '{}'
