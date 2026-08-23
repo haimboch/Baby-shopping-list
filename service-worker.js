@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v047-flexible-family-inventory-and-savings";
+const CACHE="baby-smart-v049-special-retailer-import";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{

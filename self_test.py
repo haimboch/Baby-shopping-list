@@ -12,13 +12,20 @@ from tests.test_core import (
     test_ksp_print_page_fallback_parser,
     test_ksp_json_api_barcode_search_parser,
     test_ksp_json_api_detail_finds_barcode_in_specification,
+    test_ksp_json_api_accepts_expanded_baby_categories,
     test_ksp_relay_routes_and_authenticates_request,
     test_superpharm_promo_filename_and_merge,
     test_superpharm_online_product_and_promo_parser,
     test_superpharm_online_multi_buy_parser,
     test_superpharm_category_product_url_extraction,
+    test_superpharm_discovers_all_supported_navigation_categories,
+    test_catalog_batch_interleaves_every_product_type,
+    test_special_retailer_cursor_advances_only_after_complete_lookup,
     test_strict_source_outcome_is_not_false_success,
     test_cheapersal_price_fallback_normalizes_matching_chain,
+    test_cheapersal_shared_lookup_fetches_once_for_both_retailers,
+    test_cheapersal_timeout_consumes_shared_budget,
+    test_partial_official_ksp_result_still_runs_catalog_completion,
 )
 from tests.test_mvp_v046_contract import (
     test_v046_frontend_enforces_trustworthy_basket_rules,
@@ -30,6 +37,12 @@ from tests.test_v047_contract import (
     test_v047_inventory_preserves_purchase_history,
     test_v047_partial_baskets_and_savings_are_visible,
     test_v047_sql_is_secure_and_non_destructive,
+)
+from tests.test_v049_retailer_import_contract import (
+    test_special_retailer_workflow_is_separate_and_staged,
+    test_v049_has_shared_cache_cursor_and_coverage_diagnostics,
+    test_all_product_types_are_accepted_by_official_parsers,
+    test_no_secret_is_embedded_in_repository_files,
 )
 
 for fn in (
@@ -46,13 +59,20 @@ for fn in (
     test_ksp_print_page_fallback_parser,
     test_ksp_json_api_barcode_search_parser,
     test_ksp_json_api_detail_finds_barcode_in_specification,
+    test_ksp_json_api_accepts_expanded_baby_categories,
     test_ksp_relay_routes_and_authenticates_request,
     test_superpharm_promo_filename_and_merge,
     test_superpharm_online_product_and_promo_parser,
     test_superpharm_online_multi_buy_parser,
     test_superpharm_category_product_url_extraction,
+    test_superpharm_discovers_all_supported_navigation_categories,
+    test_catalog_batch_interleaves_every_product_type,
+    test_special_retailer_cursor_advances_only_after_complete_lookup,
     test_strict_source_outcome_is_not_false_success,
     test_cheapersal_price_fallback_normalizes_matching_chain,
+    test_cheapersal_shared_lookup_fetches_once_for_both_retailers,
+    test_cheapersal_timeout_consumes_shared_budget,
+    test_partial_official_ksp_result_still_runs_catalog_completion,
     test_v046_frontend_enforces_trustworthy_basket_rules,
     test_v046_sql_view_has_explicit_api_grant_and_invoker_security,
     test_v047_inventory_preserves_purchase_history,
@@ -60,6 +80,10 @@ for fn in (
     test_v047_partial_baskets_and_savings_are_visible,
     test_v047_family_choice_and_visible_names,
     test_v047_sql_is_secure_and_non_destructive,
+    test_special_retailer_workflow_is_separate_and_staged,
+    test_v049_has_shared_cache_cursor_and_coverage_diagnostics,
+    test_all_product_types_are_accepted_by_official_parsers,
+    test_no_secret_is_embedded_in_repository_files,
 ):
     fn()
     print(f"✅ {fn.__name__}")
