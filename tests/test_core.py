@@ -1,9 +1,10 @@
 from baby_worker.classifier import classify_need, parse_dimension, parse_package_quantity
-from baby_worker.cheapersal_prices import CheaperSalPriceFallback
+from baby_worker.cheapersal_prices import CheaperSalPriceClient, CheaperSalPriceFallback
 from baby_worker.product_images import ProductImageEnricher, extract_product_image
 import baby_worker.product_images as product_images_module
 from baby_worker.ksp import _get_json, parse_ksp_api_product, parse_ksp_product_html
 from baby_worker.superpharm_online import (
+    extract_superpharm_category_urls,
     extract_superpharm_product_urls,
     parse_superpharm_product_html,
 )
@@ -13,6 +14,9 @@ from baby_worker.worker import (
     merge_prices_and_promos,
     to_db_price,
     save_official_catalog_rows,
+    _interleave_catalog_targets,
+    _special_retailer_batch,
+    _special_batch_with_lookup_result,
 )
 from baby_worker.xmlfeeds import parse_price_rows, parse_promotions, parse_stores
 
@@ -249,7 +253,9 @@ def test_catalog_collects_products_from_every_supermarket():
          "package_quantity": 1000, "package_unit": "מ״ל"},
     ]
     stats = save_official_catalog_rows(db, rows)
-    assert stats == {"candidates": 3, "already_known": 0, "saved": 3}
+    assert stats == {
+        "candidates": 3, "already_known": 0, "saved": 3, "images_saved": 0,
+    }
     assert {row["need_key"] for row in db.saved} == {
         "diaper_cream", "baby_wash", "baby_laundry"
     }
@@ -389,6 +395,25 @@ def test_ksp_json_api_detail_finds_barcode_in_specification():
     assert parsed["promo_row"] is None
 
 
+def test_ksp_json_api_accepts_expanded_baby_categories():
+    payload = {
+        "result": {
+            "name": "סבון ושמפו לתינוק 500 מ״ל",
+            "uin": "990001",
+            "price": 22.9,
+            "brandName": "Dr. Fischer",
+        }
+    }
+    parsed = parse_ksp_api_product(
+        payload,
+        expected_barcode="7290000000201",
+        expected_need="baby_wash",
+    )
+    assert parsed is not None
+    assert parsed["price_row"]["need_key"] == "baby_wash"
+    assert parsed["price_row"]["barcode"] == "7290000000201"
+
+
 def test_ksp_relay_routes_and_authenticates_request():
     class Response:
         ok = True
@@ -499,6 +524,85 @@ def test_superpharm_category_product_url_extraction():
     ]
 
 
+def test_superpharm_discovers_all_supported_navigation_categories():
+    page = """
+      <a href="/baby/changing-pads/c/100">משטחי החתלה וכיסויים</a>
+      <a href="/baby/diaper-cream/c/101">משחת החתלה לתינוק</a>
+      <a href="/baby/bath-oil/c/102">שמן רחצה לתינוק</a>
+      <a href="/baby/body-cream/c/103">קרם גוף לתינוק</a>
+      <a href="/adult/body-cream/c/104">קרם גוף למבוגרים</a>
+    """
+    found = extract_superpharm_category_urls(page)
+    assert {need for need, _ in found} == {
+        "changing_pads", "diaper_cream", "bath_oil", "body_cream",
+    }
+
+
+def test_catalog_batch_interleaves_every_product_type():
+    rows = []
+    for index, need_key in enumerate((
+        "diapers", "wipes", "diaper_cream", "changing_pads", "diaper_bags",
+        "formula", "baby_wash", "bath_oil", "body_cream", "baby_laundry",
+    ), start=1):
+        rows.append({"barcode": f"7290000000{index:03d}", "need_key": need_key})
+    ordered = _interleave_catalog_targets(rows)
+    assert len(ordered) == 10
+    assert {row["need_key"] for row in ordered} == {row["need_key"] for row in rows}
+
+
+def test_special_retailer_cursor_advances_only_after_complete_lookup():
+    class FakeDatabase:
+        def __init__(self, runs=None):
+            self.runs = runs or []
+
+        def select(self, table, params):
+            assert table == "feed_ingestion_runs"
+            return self.runs
+
+    rows = [
+        {"barcode": f"729000000{i:04d}", "need_key": "wipes"}
+        for i in range(55)
+    ]
+    selected, planned, _ = _special_retailer_batch(FakeDatabase(), rows)
+    assert len(selected) == 48
+    assert planned["mode"] == "bootstrap"
+    assert planned["due"] is True
+
+    incomplete = _special_batch_with_lookup_result(
+        planned, {"attempted": 48, "shared_cache_entries": 47},
+    )
+    assert incomplete["committed"] is False
+    assert incomplete["next_cursor"] == 0
+
+    complete = _special_batch_with_lookup_result(
+        planned, {"attempted": 48, "shared_cache_entries": 48},
+    )
+    assert complete["committed"] is True
+    assert complete["next_cursor"] == 48
+
+    first_chain_only = _special_batch_with_lookup_result(
+        planned,
+        {"attempted": 48, "shared_cache_entries": 48},
+        allow_commit=False,
+    )
+    assert first_chain_only["provider_complete"] is True
+    assert first_chain_only["committed"] is False
+    assert first_chain_only["next_cursor"] == 0
+
+    last_run = {
+        "finished_at": "2999-01-01T00:00:00+00:00",
+        "details": {"special_retailer_batch": {
+            **complete,
+            "next_cursor": 0,
+            "cycles_completed": 1,
+            "wrapped": True,
+        }},
+    }
+    _, maintenance, _ = _special_retailer_batch(FakeDatabase([last_run]), rows)
+    assert maintenance["mode"] == "maintenance"
+    assert maintenance["due"] is False
+
+
 def test_strict_source_outcome_is_not_false_success():
     blocked_data = {
         "files_seen": 0,
@@ -571,3 +675,160 @@ def test_cheapersal_price_fallback_normalizes_matching_chain():
         assert source_pass["store_rows"][0]["branch_code"] == "online"
     finally:
         cheapersal_prices.requests = original_requests
+
+
+def test_cheapersal_shared_lookup_fetches_once_for_both_retailers():
+    payload = {
+        "success": True,
+        "data": {
+            "product": {
+                "barcode": "7290000000101",
+                "name": "סבון רחצה לתינוק 500 מ״ל",
+                "manufacturer": "Dr. Fischer",
+            },
+            "prices": [
+                {
+                    "price": 22.9,
+                    "chain": {"name": "סופר פארם"},
+                    "branch": {"id": "sp-1", "name": "סופר פארם שדרות", "city": "שדרות"},
+                },
+                {
+                    "price": 19.9,
+                    "chain": {"name": "KSP"},
+                    "branch": {"id": "online", "name": "KSP אונליין", "isOnline": True},
+                },
+            ],
+        },
+    }
+    calls = []
+
+    class Response:
+        status_code = 200
+        ok = True
+        text = "{}"
+        headers = {}
+
+        def json(self):
+            return payload
+
+    def fake_get(*args, **kwargs):
+        calls.append((args, kwargs))
+        return Response()
+
+    import baby_worker.cheapersal_prices as cheapersal_prices
+
+    original_requests = cheapersal_prices.requests
+    cheapersal_prices.requests = type("RequestsMock", (), {"get": staticmethod(fake_get)})
+    try:
+        client = CheaperSalPriceClient(
+            "csal_test", limit=1, online=False, minimum_interval=0,
+        )
+        target = [{"barcode": "7290000000101", "need_key": "baby_wash"}]
+        sp_pass, sp_stats = CheaperSalPriceFallback(
+            "csal_test", client=client,
+        ).collect("SUPER_PHARM", target)
+        ksp_pass, ksp_stats = CheaperSalPriceFallback(
+            "csal_test", client=client,
+        ).collect("KSP", target)
+        assert len(calls) == 1
+        assert len(sp_pass["price_rows"]) == 1
+        assert len(ksp_pass["price_rows"]) == 1
+        assert sp_stats["network_requests"] == 1
+        assert ksp_stats["network_requests"] == 0
+        assert ksp_stats["cache_hits"] == 1
+    finally:
+        cheapersal_prices.requests = original_requests
+
+
+def test_cheapersal_timeout_consumes_shared_budget():
+    import baby_worker.cheapersal_prices as cheapersal_prices
+
+    calls = []
+
+    def failing_get(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise TimeoutError("simulated provider timeout")
+
+    original_requests = cheapersal_prices.requests
+    cheapersal_prices.requests = type(
+        "RequestsMock", (), {"get": staticmethod(failing_get)}
+    )
+    try:
+        client = CheaperSalPriceClient(
+            "csal_test", limit=1, online=False, minimum_interval=0,
+        )
+        target = [
+            {"barcode": "7290000000201", "need_key": "baby_wash"},
+            {"barcode": "7290000000202", "need_key": "bath_oil"},
+        ]
+        _, stats = CheaperSalPriceFallback(
+            "csal_test", client=client,
+        ).collect("KSP", target)
+        assert len(calls) == 1
+        assert client.remaining == 0
+        assert stats["network_requests"] == 1
+        assert stats["attempted"] == 1
+    finally:
+        cheapersal_prices.requests = original_requests
+
+
+def test_partial_official_ksp_result_still_runs_catalog_completion():
+    import asyncio
+    import baby_worker.worker as worker
+
+    def source_pass(name, barcode):
+        return {
+            "pass_name": name,
+            "file_types": ["TEST"],
+            "limit": 1,
+            "files_seen": 1,
+            "price_rows": [{"barcode": barcode}],
+            "promo_rows": [],
+            "store_rows": [],
+            "errors": [],
+            "kind_counts": {"test": 1},
+            "sample_files": [barcode],
+            "price_schema_diagnostics": [],
+        }
+
+    calls = []
+
+    class FakeFallback:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def collect(self, requested_chain, targets):
+            calls.append((requested_chain, targets))
+            return source_pass("catalog_completion", "7290000000202"), {
+                "fallback_used": True,
+                "attempted": len(targets),
+            }
+
+    original_official = worker.collect_ksp_official
+    original_fallback = worker.CheaperSalPriceFallback
+    worker.collect_ksp_official = lambda **kwargs: (
+        [source_pass("official", "7290000000201")], {}
+    )
+    worker.CheaperSalPriceFallback = FakeFallback
+    try:
+        result = asyncio.run(worker.collect_source(
+            "KSP",
+            10,
+            {
+                "ksp_catalog_targets": [
+                    {"barcode": "7290000000202", "need_key": "bath_oil"},
+                ],
+                "ksp_known_items": [],
+                "special_retailer_batch": {"version": "v049"},
+            },
+            object(),
+        ))
+        assert calls == [("KSP", [
+            {"barcode": "7290000000202", "need_key": "bath_oil"},
+        ])]
+        assert {row["barcode"] for row in result["price_rows"]} == {
+            "7290000000201", "7290000000202",
+        }
+    finally:
+        worker.collect_ksp_official = original_official
+        worker.CheaperSalPriceFallback = original_fallback
