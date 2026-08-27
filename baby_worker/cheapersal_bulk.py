@@ -16,6 +16,7 @@ from .cheapersal_prices import (
     _money,
 )
 from .classifier import classify_need, infer_brand, parse_dimension, parse_package_quantity
+from .promotions import normalize_promotion_terms
 from .enrichment import API_BASE
 from .product_types import SUPPORTED_PRODUCT_TYPES
 
@@ -188,25 +189,22 @@ def promo_from_provider(
 ) -> dict[str, Any] | None:
     barcode = _barcode(value.get("itemCode") or value.get("barcode") or value.get("ean"))
     product = price_rows.get(barcode)
-    promo_price = _money(
-        value.get("promoPrice") or value.get("price") or value.get("discountedPrice")
-    )
-    if not product or promo_price is None or promo_price >= float(product["regular_price"]):
+    if not product:
         return None
     quantity = max(1, _as_int(
         value.get("minQty") or value.get("minQuantity") or value.get("quantity"), 1
     ))
     total = _money(value.get("totalPrice") or value.get("promoTotalPrice"))
-    if quantity > 1 and total is None:
-        total = round(promo_price * quantity, 2)
-    if quantity == 1 and total is None:
-        total = promo_price
-    return {
+    candidate = {
         "source_name": "SUPER_PHARM",
         "branch_code": SUPER_PHARM_ONLINE_CODE,
         "subchain_id": None,
         "barcode": barcode,
-        "promo_price": promo_price,
+        "promo_price": _money(
+            value.get("promoPrice")
+            or value.get("price")
+            or value.get("discountedPrice")
+        ),
         "promo_description": _clean(
             value.get("description") or value.get("name") or value.get("productName")
         ) or "מבצע אונליין בסופר-פארם",
@@ -217,6 +215,10 @@ def promo_from_provider(
         "requires_club": bool(value.get("requiresClub")),
         "raw_promo": value,
     }
+    normalized = normalize_promotion_terms(candidate, product["regular_price"])
+    if normalized.get("promo_price") is None:
+        return None
+    return normalized
 
 
 def _quota_reset_at(now: datetime | None = None) -> str:

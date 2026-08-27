@@ -15,6 +15,7 @@ from .classifier import (
     parse_dimension,
     parse_package_quantity,
 )
+from .promotions import normalize_promotion_terms, parse_bundle_description
 from .product_types import SUPPORTED_PRODUCT_TYPES
 
 
@@ -294,23 +295,24 @@ def parse_superpharm_product_html(
     current_price = current_candidates[0] if current_candidates else min(all_prices)
     regular_price = max([value for value in all_prices if value >= current_price] or [current_price])
 
-    multi = re.search(
-        r"מחיר\s+ל[-\s]?(\d+)\s*יחידות?\s*(?:ב[-\s]?)?(\d+(?:[.,]\d{1,2})?)\s*₪",
-        visible_scope,
-        re.I,
-    )
+    multi = parse_bundle_description(visible_scope)
     promo_min_quantity = 1
     promo_total_price: float | None = None
     promo_price: float | None = None
     promo_description = ""
     if multi:
-        promo_min_quantity = int(multi.group(1))
-        promo_total_price = _money(multi.group(2))
+        promo_min_quantity = int(multi["quantity"])
+        if multi.get("kind") == "fixed_total":
+            promo_total_price = float(multi["total_price"])
+        elif multi.get("kind") == "buy_get_free":
+            promo_total_price = regular_price * int(multi["paid_quantity"])
         if promo_total_price and promo_min_quantity > 0:
             unit_price = promo_total_price / promo_min_quantity
             if unit_price < regular_price:
                 promo_price = unit_price
-                promo_description = _clean_text(multi.group(0))
+                promo_description = (
+                    f"{promo_min_quantity} אריזות ב-₪{promo_total_price:.2f}"
+                )
     elif regular_price > current_price * 1.001:
         promo_price = current_price
         promo_total_price = current_price
@@ -352,7 +354,7 @@ def parse_superpharm_product_html(
 
     promo_row = None
     if promo_price is not None:
-        promo_row = {
+        candidate = {
             "source_name": "SUPER_PHARM",
             "subchain_id": None,
             "branch_code": SP_ONLINE_BRANCH,
@@ -370,6 +372,7 @@ def parse_superpharm_product_html(
                 "item_url": product_url,
             },
         }
+        promo_row = normalize_promotion_terms(candidate, regular_price)
 
     return {
         "price_row": price_row,

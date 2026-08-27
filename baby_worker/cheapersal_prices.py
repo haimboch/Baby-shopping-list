@@ -15,6 +15,7 @@ from .classifier import (
     parse_package_quantity,
 )
 from .enrichment import API_BASE
+from .promotions import normalize_promotion_terms
 from .product_types import SUPPORTED_PRODUCT_TYPES
 from .rate_limit import record_call, retry_after_seconds, wait_for_slot
 
@@ -160,7 +161,7 @@ def _row_from_price(
         None,
         product.get("unitQty") or product.get("unitQuantity"),
     )
-    promo = _promo_fields(price)
+    promo = normalize_promotion_terms(_promo_fields(price), amount)
     effective = promo.get("promo_price")
     promo_price = float(effective) if effective and 0 < float(effective) < amount else None
 

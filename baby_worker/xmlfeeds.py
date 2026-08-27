@@ -344,20 +344,59 @@ def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[d
         "PromotionPrice", "PromoPrice", "DiscountedPrice", "DiscountPrice"
     )
     total_price_keys = (
-        "PromotionTotalPrice", "PromoTotalPrice", "TotalPrice", "PromotionAmount"
+        "PromotionTotalPrice", "PromoTotalPrice", "TotalPrice", "PromotionAmount",
+        "TotalPromotionPrice", "PromotionBundlePrice",
     )
-    min_qty_keys = ("MinQty", "MinimumQuantity", "MinQuantity")
-    desc_keys = ("PromotionDescription", "Description", "PromoDescription")
+    min_qty_keys = (
+        "MinQty", "MinimumQuantity", "MinQuantity", "MinimumQty",
+        "PromotionMinQuantity", "QuantityInPromotion",
+    )
+    desc_keys = (
+        "PromotionDescription", "Description", "PromoDescription",
+        "PromotionDesc", "RestrictionDescription",
+    )
     start_keys = ("PromotionStartDate", "StartDate")
     end_keys = ("PromotionEndDate", "EndDate")
     club_keys = ("Clubs", "ClubId", "RequiresClub", "ClubCode")
 
+    def descendant_value(element: ET.Element, keys: tuple[str, ...]) -> str | None:
+        wanted = {key.lower() for key in keys}
+        for descendant in element.iter():
+            if local(descendant.tag).lower() in wanted and descendant.text:
+                value = descendant.text.strip()
+                if value:
+                    return value
+        return None
+
     for el in root.iter():
         d = child_map(el)
-        desc = first(d, desc_keys)
-        explicit = safe_float(first(d, promo_price_keys))
-        total_price = safe_float(first(d, total_price_keys))
-        min_qty = safe_float(first(d, min_qty_keys)) or 1.0
+        direct_tags = {key.lower() for key in d}
+        promotion_signals = {
+            key.lower()
+            for key in (
+                *promo_price_keys, *total_price_keys, *min_qty_keys,
+                *desc_keys, *start_keys, *end_keys, *club_keys,
+            )
+        }
+        # Do not inspect the document root or a plural <Promotions> wrapper
+        # recursively: doing so would attach the first deal to every item in
+        # the file. A singular promotion container may keep its restrictions
+        # one level deeper, hence the explicit tag exception.
+        element_tag = local(el.tag).lower()
+        if not direct_tags.intersection(promotion_signals) and element_tag not in {
+            "promotion", "promo", "deal", "sale",
+        }:
+            continue
+        desc = first(d, desc_keys) or descendant_value(el, desc_keys)
+        explicit = safe_float(
+            first(d, promo_price_keys) or descendant_value(el, promo_price_keys)
+        )
+        total_price = safe_float(
+            first(d, total_price_keys) or descendant_value(el, total_price_keys)
+        )
+        min_qty = safe_float(
+            first(d, min_qty_keys) or descendant_value(el, min_qty_keys)
+        ) or 1.0
         if not desc and explicit is None and total_price is None:
             continue
 
@@ -381,7 +420,9 @@ def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[d
             promo_price = explicit
             total_price = explicit
 
-        requires_club = safe_bool(first(d, club_keys))
+        requires_club = safe_bool(
+            first(d, club_keys) or descendant_value(el, club_keys)
+        )
         for code in codes:
             promo_rows.append({
                 "source_name": source_name,
@@ -402,7 +443,14 @@ def parse_promotions(content: bytes, source_name: str, file_name: str) -> list[d
                     "file_name": file_name,
                 },
             })
-    return dedupe(promo_rows, ("source_name", "branch_code", "barcode"))
+    # Keep distinct concurrent offers for the same item. The shared merge
+    # layer selects the best active offer after it has normalized every
+    # retailer's quantity/total-price convention.
+    return dedupe(promo_rows, (
+        "source_name", "subchain_id", "branch_code", "barcode",
+        "promo_price", "promo_description", "promo_start_at", "promo_end_at",
+        "promo_min_quantity", "promo_total_price", "requires_club",
+    ))
 
 
 def price_file_diagnostics(content: bytes, file_name: str) -> dict[str, Any]:

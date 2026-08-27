@@ -16,6 +16,7 @@ from .classifier import (
     parse_dimension,
     parse_package_quantity,
 )
+from .promotions import normalize_promotion_terms, parse_bundle_description
 from .product_types import SUPPORTED_PRODUCT_TYPES
 
 
@@ -202,8 +203,8 @@ def parse_ksp_api_product(
         },
     }
     promo_row = None
-    if promo_price is not None:
-        promo_row = {
+    if promo_price is not None or parse_bundle_description(description):
+        candidate = {
             "source_name": "KSP",
             "subchain_id": None,
             "branch_code": KSP_ONLINE_BRANCH,
@@ -214,13 +215,16 @@ def parse_ksp_api_product(
             "promo_end_at": None,
             "promo_min_quantity": 1,
             "promo_total_price": promo_price,
-            "requires_club": True,
+            "requires_club": promo_price is not None,
             "raw_promo": {
                 "source": "ksp_internal_json_api",
                 "item_id": resolved_item_id,
                 "item_url": item_url,
             },
         }
+        candidate = normalize_promotion_terms(candidate, regular_price)
+        if candidate.get("promo_price") is not None:
+            promo_row = candidate
     return {
         "price_row": price_row,
         "promo_row": promo_row,
@@ -451,8 +455,8 @@ def parse_ksp_product_html(
     }
 
     promo_row = None
-    if promo_price is not None:
-        promo_row = {
+    if promo_price is not None or parse_bundle_description(description):
+        candidate = {
             "source_name": "KSP",
             "subchain_id": None,
             "branch_code": KSP_ONLINE_BRANCH,
@@ -470,6 +474,9 @@ def parse_ksp_product_html(
                 "item_url": product_url,
             },
         }
+        candidate = normalize_promotion_terms(candidate, regular_price)
+        if candidate.get("promo_price") is not None:
+            promo_row = candidate
 
     return {
         "price_row": price_row,

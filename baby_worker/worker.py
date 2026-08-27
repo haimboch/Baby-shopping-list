@@ -24,6 +24,11 @@ from .superpharm_online import collect_superpharm_online
 from .cheapersal_prices import CheaperSalPriceClient, CheaperSalPriceFallback
 from .cheapersal_bulk import SuperPharmBulkImporter
 from .product_types import PRODUCT_TYPES
+from .promotions import (
+    normalize_promotion_terms,
+    normalize_promotion_timestamp,
+    promotion_is_active,
+)
 from .product_images import (
     ProductImageEnricher,
     extract_product_image,
@@ -195,28 +200,65 @@ def filter_stale_against_db(db: SupabaseREST, prices: list[dict[str, Any]]) -> t
 
 def _promo_is_active(promo: dict[str, Any], now: datetime | None = None) -> bool:
     """Accept undated or currently active promotions, reject future/expired ones."""
-    now = now or datetime.now(timezone.utc)
-    start = normalize_timestamp(promo.get("promo_start_at"))
-    end = normalize_timestamp(promo.get("promo_end_at"))
-    try:
-        if start and datetime.fromisoformat(start.replace("Z", "+00:00")) > now:
-            return False
-        if end and datetime.fromisoformat(end.replace("Z", "+00:00")) < now:
-            return False
-    except ValueError:
-        return False
-    return True
+    return promotion_is_active(promo, now)
 
 
 def merge_prices_and_promos(price_rows: list[dict[str, Any]], promos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    pmap = {
-        (r["source_name"], r["branch_code"], r["barcode"]): r
-        for r in promos if _promo_is_active(r)
-    }
+    pmap: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    fallback_map: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for promo in promos:
+        if not _promo_is_active(promo):
+            continue
+        key = (
+            str(promo["source_name"]),
+            str(promo.get("subchain_id") or ""),
+            str(promo["branch_code"]),
+            str(promo["barcode"]),
+        )
+        pmap[key].append(promo)
+        fallback_map[(key[0], key[2], key[3])].append(promo)
+
     out = []
     for r in price_rows:
-        promo = pmap.get((r["source_name"], r["branch_code"], r["barcode"]))
         row = dict(r)
+        regular = float(row["regular_price"])
+        key = (
+            str(r["source_name"]),
+            str(r.get("subchain_id") or ""),
+            str(r["branch_code"]),
+            str(r["barcode"]),
+        )
+        candidates = list(pmap.get(key, []))
+        if not candidates:
+            # Legacy/special-retailer feeds occasionally omit subchain_id.
+            # Fall back only when the exact source+branch+barcode match is
+            # otherwise absent.
+            candidates = list(fallback_map.get((key[0], key[2], key[3]), []))
+        # Some providers embed promotion data directly in their price row.
+        if row.get("promo_price") is not None or row.get("promo_description"):
+            candidates.append(row)
+
+        normalized_candidates = [
+            normalize_promotion_terms(candidate, regular)
+            for candidate in candidates
+            if _promo_is_active(candidate)
+        ]
+        eligible = [
+            candidate
+            for candidate in normalized_candidates
+            if positive_or_none(candidate.get("promo_price")) is not None
+            and float(candidate["promo_price"]) < regular
+        ]
+        promo = min(
+            eligible,
+            key=lambda candidate: (
+                float(candidate["promo_price"]),
+                int(candidate.get("promo_min_quantity") or 1),
+                float(candidate.get("promo_total_price") or candidate["promo_price"]),
+            ),
+            default=None,
+        )
+
         if promo:
             promo_price = positive_or_none(promo.get("promo_price"))
             promo_total_price = positive_or_none(promo.get("promo_total_price"))
@@ -224,8 +266,12 @@ def merge_prices_and_promos(price_rows: list[dict[str, Any]], promos: list[dict[
             row.update({
                 "promo_price": promo_price,
                 "promo_description": promo.get("promo_description"),
-                "promo_start_at": normalize_timestamp(promo.get("promo_start_at")),
-                "promo_end_at": normalize_timestamp(promo.get("promo_end_at")),
+                "promo_start_at": normalize_promotion_timestamp(
+                    promo.get("promo_start_at")
+                ),
+                "promo_end_at": normalize_promotion_timestamp(
+                    promo.get("promo_end_at"), end_of_day=True
+                ),
                 "promo_min_quantity": promo_min_quantity,
                 "promo_total_price": promo_total_price,
                 "requires_club": bool(promo.get("requires_club")),
@@ -233,8 +279,17 @@ def merge_prices_and_promos(price_rows: list[dict[str, Any]], promos: list[dict[
             raw = dict(row.get("raw_source") or {})
             raw["promo"] = promo.get("raw_promo")
             row["raw_source"] = raw
+        else:
+            row.update({
+                "promo_price": None,
+                "promo_description": None,
+                "promo_start_at": None,
+                "promo_end_at": None,
+                "promo_min_quantity": 1,
+                "promo_total_price": None,
+                "requires_club": False,
+            })
         promo_price = row.get("promo_price")
-        regular = float(row["regular_price"])
         row["effective_price"] = float(promo_price) if promo_price and 0 < float(promo_price) < regular else regular
         row["source_updated_at"] = normalize_timestamp(row.get("source_updated_at"))
         row["last_seen_at"] = utcnow()
