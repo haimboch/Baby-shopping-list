@@ -28,9 +28,10 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       CHEAPERSAL_API_KEY: ${{ secrets.CHEAPERSAL_API_KEY }}
       ENABLED_CHAINS: "shufersal,be,rami_levy,yochananof,osher_ad"
-      ENRICHMENT_LIMIT: "8"
+      # Reserve the shared free CheaperSal quota for the bulk retailer import.
+      ENRICHMENT_LIMIT: "2"
       PRODUCT_IMAGE_LOOKUP_LIMIT: "36"
-      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "4"
+      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "1"
       CHEAPERSAL_MIN_INTERVAL_SECONDS: "7"
       PYTHONUNBUFFERED: "1"
 
