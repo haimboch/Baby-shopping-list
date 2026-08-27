@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.49</title>
+<title>Baby Smart List · Dashboard v0.50</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -507,7 +507,7 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.49</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.50</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 <nav class="app-bottom-nav" aria-label="ניווט ראשי">
   <button class="app-nav-item active" data-app-nav="dashboard" aria-current="page"><span class="app-nav-icon" aria-hidden="true">⌂</span><small>הבית</small></button>
@@ -775,7 +775,15 @@ const DASHBOARD_CATEGORIES=[
 const SUPPORTED_NEEDS=new Set(Object.keys(NEEDS).filter(key=>key!=="other"));
 const ACTIVE_CHAINS=["rami_levy","yochananof","shufersal","be","osher_ad","super_pharm","ksp"];
 const ONLINE_CHAINS=new Set(["ksp"]);
-const isOnlineBranch=row=>ONLINE_CHAINS.has(row?.chain_id)||String(row?.branch_code||"")==="online";
+const SUPER_PHARM_ONLINE_PROVIDER_ID="5f186c4390ae893cc6e86587";
+const isOnlineBranch=row=>{
+  const code=String(row?.branch_code||"");
+  if(ONLINE_CHAINS.has(row?.chain_id)||code==="online")return true;
+  return row?.chain_id==="super_pharm"&&(
+    code===SUPER_PHARM_ONLINE_PROVIDER_ID
+    ||/(?:online|אונליין|באינטרנט|אינטרנט)/i.test(`${row?.branch_name||""} ${row?.address||""}`)
+  );
+};
 const CHAIN_LABELS={rami_levy:"רמי לוי",yochananof:"יוחננוף",shufersal:"שופרסל",be:"Be",osher_ad:"אושר עד",super_pharm:"סופר־פארם",ksp:"KSP"};
 function normPlace(v){
   return String(v||"").trim().toLowerCase().replace(/[\u200e\u200f]/g,"").replace(/\s+/g," ");
@@ -1584,7 +1592,8 @@ async function fetchNearbyBranches(){
 }
 async function fetchScopedPriceRows(products,branches,maxRows=10000){
   const needs=[...new Set(products.filter(product=>SUPPORTED_NEEDS.has(product.need_key)).map(product=>product.need_key))];
-  const codes=[...new Set(branches.map(branch=>String(branch.branch_code)))];
+  const localSuperPharm=branches.filter(branch=>branch.chain_id==="super_pharm"&&!isOnlineBranch(branch));
+  const codes=[...new Set([...branches.map(branch=>String(branch.branch_code)),...(localSuperPharm.length?["online",SUPER_PHARM_ONLINE_PROVIDER_ID]:[])])];
   if(!needs.length||!codes.length)return {data:[],error:null};
   const fields="chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,effective_price,regular_price,promo_price,normalized_unit_price,normalized_unit_label,source_updated_at,last_seen_at,promo_description,image_url";
   const rows=[],pageSize=1000;
@@ -1595,7 +1604,23 @@ async function fetchScopedPriceRows(products,branches,maxRows=10000){
     if((response.data||[]).length<pageSize)break;
   }
   const branchKeys=new Set(branches.map(branch=>`${branch.chain_id}|${branch.branch_code}`));
-  return {data:rows.filter(row=>branchKeys.has(`${row.chain_id}|${row.branch_code}`)),error:null};
+  const physical=rows.filter(row=>branchKeys.has(`${row.chain_id}|${row.branch_code}`));
+  const physicalBarcodes=new Set(physical.filter(row=>priceFreshness(row).eligible).map(row=>`${row.chain_id}|${row.branch_code}|${row.barcode}`));
+  const onlineRows=rows.filter(row=>row.chain_id==="super_pharm"&&["online",SUPER_PHARM_ONLINE_PROVIDER_ID].includes(String(row.branch_code)));
+  const bestOnline=new Map();
+  onlineRows.forEach(row=>{
+    const current=bestOnline.get(String(row.barcode));
+    const canonical=String(row.branch_code)==="online";
+    const currentCanonical=String(current?.branch_code||"")==="online";
+    if(!current||(canonical&&!currentCanonical)||(canonical===currentCanonical&&Number(row.effective_price)<Number(current.effective_price)))bestOnline.set(String(row.barcode),row);
+  });
+  const estimates=[];
+  localSuperPharm.forEach(branch=>bestOnline.forEach(row=>{
+    const key=`${branch.chain_id}|${branch.branch_code}|${row.barcode}`;
+    if(physicalBarcodes.has(key))return;
+    estimates.push({...row,branch_code:branch.branch_code,online_source_branch_code:row.branch_code,online_price_reference:true,in_store_price_verified:false,in_store_stock_verified:false});
+  }));
+  return {data:[...physical,...estimates],error:null};
 }
 async function calculatePotentialSavings(){
   const relevant=items.filter(product=>product.stock_status!=="ok"&&product.need_key!=="formula"&&product.preferred_barcode&&product.allow_alternatives!==false);
@@ -1913,6 +1938,9 @@ function directQuote(r,p){
     is_promotion:activePromotion,
     requires_club:!!r.requires_club,
     is_online:isOnlineBranch(r),
+    online_price_reference:!!r.online_price_reference||isOnlineBranch(r),
+    nearby_branch_name:r.nearby_branch_name||null,
+    nearby_distance_km:r.nearby_distance_km==null?null:Number(r.nearby_distance_km),
     alternative_id:null
   };
 }
@@ -1932,7 +1960,7 @@ async function comparePrices(id){
   $("ctitle").textContent="🔎 "+p.name+(p.need_detail?" · "+p.need_detail:"");
   const radiusKm=Number(household?.search_radius_km||10);
   $("csub").textContent=`השוואה בין ${ACTIVE_CHAINS.length} רשתות לפי ${MODES[p.comparison_mode]||MODES.unit}`;
-  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">סניפים בטווח שבחרת, יחד עם הצעות אונליין רשמיות מ־KSP וסופר־פארם. מחיר ישן מדי מוצג בשקיפות אך לא מסומן כעסקה הטובה ביותר.</span>`;
+  $("clocation").innerHTML=`<b>רדיוס פעיל:</b> ${esc(household?.city||"אזור מותאם")} · ${radiusKm} ק״מ<br><span class="sub">סניפים בטווח שבחרת, יחד עם מחירי אונליין מסומנים בבירור. מחיר האונליין של סופר־פארם יוצג רק כשיש סניף קרוב; מחיר וזמינות בסניף אינם מאומתים.</span>`;
   $("cbody").className="loading";$("cbody").innerHTML="מחשב סניפים בטווח וטוען מחירים…";
   $("purchasebox").classList.add("hidden");$("feedbackbox").classList.add("hidden");
   $("cdlg").showModal();
@@ -1948,7 +1976,7 @@ async function comparePrices(id){
   }
 
   const allBranches=branchData||[];
-  const onlineBranches=allBranches.filter(isOnlineBranch);
+  const allOnlineBranches=allBranches.filter(isOnlineBranch);
   const localOnlyBranches=allBranches.filter(b=>!isOnlineBranch(b));
   const geocodedBranches=localOnlyBranches.filter(hasCoords);
   const missingCoordCount=localOnlyBranches.length-geocodedBranches.length;
@@ -1956,7 +1984,15 @@ async function comparePrices(id){
     ...b,
     distance_km:haversineKm(household.latitude,household.longitude,b.latitude,b.longitude)
   })).filter(b=>b.distance_km<=radiusKm).sort((a,b)=>a.distance_km-b.distance_km):[];
-
+  const nearestSuperPharm=localBranches.find(branch=>branch.chain_id==="super_pharm")||null;
+  const hasCanonicalSuperPharmOnline=allOnlineBranches.some(branch=>branch.chain_id==="super_pharm"&&String(branch.branch_code)==="online");
+  const onlineBranches=allOnlineBranches.filter(branch=>{
+    if(branch.chain_id!=="super_pharm")return true;
+    if(!nearestSuperPharm)return false;
+    return !hasCanonicalSuperPharmOnline||String(branch.branch_code)==="online";
+  }).map(branch=>branch.chain_id==="super_pharm"&&nearestSuperPharm?{
+    ...branch,nearby_branch_name:nearestSuperPharm.branch_name,nearby_distance_km:nearestSuperPharm.distance_km
+  }:branch);
   const scopeBranches=[...localBranches,...onlineBranches.map(b=>({...b,distance_km:null}))];
   const scopeKeys=new Set(scopeBranches.map(b=>`${b.chain_id}|${b.branch_code}`));
   const scopeCodes=[...new Set(scopeBranches.map(b=>String(b.branch_code)))];
@@ -2055,7 +2091,7 @@ async function comparePrices(id){
     radius_km:radiusKm,
     branches_in_radius:localBranches.length,
     online_sources:onlineBranches.length,
-    branches_missing_coordinates:Math.max(0,missingCoordCount-onlineBranches.length),
+    branches_missing_coordinates:missingCoordCount,
     fresh_result_count:freshCount,
     stale_result_count:staleCount,
     fresh_hours:PRICE_FRESH_HOURS,
@@ -2113,7 +2149,8 @@ function buildShoppingBaskets(wanted,nearby,priceRows){
     const smartTotal=available.reduce((sum,item)=>sum+Number((item.alternative||item.selected).effective_price),0);
     const completionTotal=missing.reduce((sum,item)=>sum+Number(item.suggestions[0]?.row.effective_price||0),0);
     const unresolvedCount=missing.filter(item=>!item.suggestions.length).length;
-    return {branch,chosen,availableCount:available.length,missingCount:missing.length,replacedCount:chosen.filter(item=>item.status==="replaced").length,unresolvedCount,preferredTotal,smartTotal,completionTotal,projectedTotal:unresolvedCount?null:smartTotal+completionTotal,savings:Math.max(0,preferredTotal-smartTotal)};
+    const onlineEstimate=available.some(item=>item.selected?.online_price_reference||item.alternative?.online_price_reference);
+    return {branch,chosen,availableCount:available.length,missingCount:missing.length,replacedCount:chosen.filter(item=>item.status==="replaced").length,unresolvedCount,preferredTotal,smartTotal,completionTotal,projectedTotal:unresolvedCount?null:smartTotal+completionTotal,savings:Math.max(0,preferredTotal-smartTotal),onlineEstimate};
   }).sort((a,b)=>a.missingCount-b.missingCount||a.unresolvedCount-b.unresolvedCount||(a.projectedTotal??Infinity)-(b.projectedTotal??Infinity)||a.smartTotal-b.smartTotal||a.branch.distance_km-b.branch.distance_km);
 }
 function shoppingBasketCard(basket,index,wantedCount){
@@ -2124,9 +2161,10 @@ function shoppingBasketCard(basket,index,wantedCount){
   const changes=replacements.length?`<div class="basket-alert"><b>🔄 הוחלפו יצרנים:</b>${replacements.map(item=>`<div>${esc(item.product.name)}: ${esc(item.preferredBrand||"יצרן מועדף")} ← ${esc(item.selected.brand||"חלופה")}</div>`).join("")}</div>`:"";
   const shortage=missing.length?`<div class="basket-alert missing"><b>⚠️ מוצרים חסרים בסניף:</b>${missing.map(item=>`<div>${esc(item.product.name)}${item.suggestions[0]?` · אפשר להשלים ב${esc(CHAIN_LABELS[item.suggestions[0].branch.chain_id]||item.suggestions[0].branch.chain_id)} ב־${formatMoney(item.suggestions[0].row.effective_price)}`:" · עדיין לא נמצא בסביבה"}</div>`).join("")}</div>`:"";
   const discount=basket.savings>0?`<div class="msg" style="margin-top:10px"><b>💡 חלופות זולות יכולות לחסוך ${formatMoney(basket.savings)}</b>${cheaper.map(item=>`<div class="meta">${esc(item.product.name)}: ${esc(item.selected.brand)} ← ${esc(item.alternative.brand)}</div>`).join("")}</div>`:"";
+  const onlineNotice=basket.onlineEstimate?'<div class="basket-alert"><b>🌐 מחירי אונליין להשוואה:</b> חלק מהמוצרים מוצגים לפי אתר סופר־פארם. המחיר והמלאי בסניף הקרוב לא אומתו.</div>':"";
   const secondLabel=basket.missingCount?"כולל השלמה משוערת":"עם חלופות זולות";
   const secondPrice=basket.missingCount?(basket.projectedTotal==null?"לא זמין":formatMoney(basket.projectedTotal)):formatMoney(basket.smartTotal);
-  return `<article class="catalog-card"><div class="ph"><div><h3>${index===0?"🏆 ":""}${esc(CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id)}</h3><div class="meta">${esc(basket.branch.branch_name||"")} · ${basket.branch.distance_km.toFixed(1)} ק״מ</div></div><span class="catalog-tag">${basket.availableCount}/${wantedCount} מוצרים</span></div><div style="margin-top:9px">${state}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px"><div><small>🛒 לתשלום בסניף</small><br><b>${formatMoney(basket.preferredTotal)}</b></div><div><small>💡 ${secondLabel}</small><br><b style="color:var(--ok)">${secondPrice}</b></div></div>${changes}${shortage}${discount}<div class="basket-actions"><a class="btn soft" href="${esc(branchWazeUrl(basket.branch))}" target="_blank" rel="noopener noreferrer">📍 ניווט ב־Waze</a><button class="btn primary" data-open-basket="${index}">🛒 רשימת קניות</button></div></article>`;
+  return `<article class="catalog-card"><div class="ph"><div><h3>${index===0?"🏆 ":""}${esc(CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id)}</h3><div class="meta">${esc(basket.branch.branch_name||"")} · ${basket.branch.distance_km.toFixed(1)} ק״מ</div></div><span class="catalog-tag">${basket.availableCount}/${wantedCount} מוצרים</span></div><div style="margin-top:9px">${state}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px"><div><small>${basket.onlineEstimate?"🌐 אומדן לפי מחיר אונליין":"🛒 לתשלום בסניף"}</small><br><b>${formatMoney(basket.preferredTotal)}</b></div><div><small>💡 ${secondLabel}</small><br><b style="color:var(--ok)">${secondPrice}</b></div></div>${onlineNotice}${changes}${shortage}${discount}<div class="basket-actions"><a class="btn soft" href="${esc(branchWazeUrl(basket.branch))}" target="_blank" rel="noopener noreferrer">📍 ניווט ב־Waze</a><button class="btn primary" data-open-basket="${index}">🛒 רשימת קניות</button></div></article>`;
 }
 async function openShoppingBasket(){
   shoppingBaskets=[];activeShoppingBasket=null;purchasedShoppingItems.clear();
@@ -2166,8 +2204,8 @@ function renderBasketDetails(){
     }
     const badge=item.status==="replaced"?'<span class="basket-state replaced">הוחלף</span>':item.status==="all_brands"?'<span class="basket-state complete">כל המותגים</span>':"";
     const label=item.status==="replaced"?`🔄 ${esc(item.selected.brand)} · במקום ${esc(item.preferredBrand||"היצרן שנבחר")}`:item.status==="all_brands"?`💡 ${esc(item.selected.brand)} · המחיר המשתלם`:`⭐ ${esc(item.selected.brand)}`;
-    const preferred=`<div class="shopping-option"><div class="shopping-option-head"><div class="photo-option-copy">${productPhoto(item.selected,item.product.need_key,true)}<div><b>${label}</b><br><small>${esc(item.selected.product_name||item.product.name)}</small></div></div><strong>${formatMoney(item.selected.effective_price)}</strong></div><button class="btn primary" data-basket-buy="${item.product.id}" data-basket-choice="preferred" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":"✓ קניתי"}</button></div>`;
-    const alternative=item.alternative?`<div class="shopping-option alternative"><div class="shopping-option-head"><div class="photo-option-copy">${productPhoto(item.alternative,item.product.need_key,true)}<div><b>💡 חלופה זולה: ${esc(item.alternative.brand)}</b><br><small>חיסכון של ${formatMoney(Number(item.selected.effective_price)-Number(item.alternative.effective_price))}</small></div></div><strong>${formatMoney(item.alternative.effective_price)}</strong></div><button class="btn soft" data-basket-buy="${item.product.id}" data-basket-choice="alternative" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":"✓ קניתי חלופה"}</button></div>`:"";
+    const preferred=`<div class="shopping-option"><div class="shopping-option-head"><div class="photo-option-copy">${productPhoto(item.selected,item.product.need_key,true)}<div><b>${label}</b><br><small>${esc(item.selected.product_name||item.product.name)}</small>${item.selected.online_price_reference?'<br><span class="online-badge">🌐 מחיר אונליין · הסניף לא אומת</span>':""}</div></div><strong>${formatMoney(item.selected.effective_price)}</strong></div><button class="btn primary" data-basket-buy="${item.product.id}" data-basket-choice="preferred" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":"✓ קניתי"}</button></div>`;
+    const alternative=item.alternative?`<div class="shopping-option alternative"><div class="shopping-option-head"><div class="photo-option-copy">${productPhoto(item.alternative,item.product.need_key,true)}<div><b>💡 חלופה זולה: ${esc(item.alternative.brand)}</b><br><small>חיסכון של ${formatMoney(Number(item.selected.effective_price)-Number(item.alternative.effective_price))}</small>${item.alternative.online_price_reference?'<br><span class="online-badge">🌐 מחיר אונליין · הסניף לא אומת</span>':""}</div></div><strong>${formatMoney(item.alternative.effective_price)}</strong></div><button class="btn soft" data-basket-buy="${item.product.id}" data-basket-choice="alternative" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":"✓ קניתי חלופה"}</button></div>`:"";
     return `<article class="catalog-card shopping-item"><div class="ph"><div><h3>${esc(item.product.name)}</h3>${description?`<div class="meta">${esc(description)}</div>`:""}</div>${badge}</div>${preferred}${alternative}</article>`
   }).join("")
 }
@@ -2209,7 +2247,7 @@ async function openProductPrices(id){
   $("preferredPricesHeading").textContent=preferredBrand?"⭐ היצרן המועדף":"✨ כל המותגים";
   $("preferredPricesDescription").textContent=preferredBrand?"מהמחיר הנמוך לגבוה":"ברירת המחדל: כל היצרנים, מהמחיר הנמוך לגבוה";
   $("alternativePricesHeading").textContent=preferredBrand?"🔄 יצרנים אחרים":"🔄 חלופות";
-  const rowHtml=(row,index)=>`<article class="catalog-card"><div class="ph"><div class="product-identity">${productPhoto(row,product.need_key,true)}<div><h3>${index===0?"🏆 ":""}${esc(row.chain)}</h3><div class="brand-line">${esc(row.brand)} · ${esc(row.product_name||product.name)}</div><div class="meta">${esc(row.branch||"")}${Number.isFinite(row.distance_km)?` · ${row.distance_km.toFixed(1)} ק״מ`:""}</div></div></div><b style="font-size:1.05rem;color:var(--ok)">${formatMoney(row.effective_price)}</b></div><div class="catalog-tags">${Number.isFinite(row.score)?`<span class="catalog-tag">${Number(row.score).toFixed(2)} ₪ ${esc(row.normalized_unit_label||"")}</span>`:""}${row.promo_description?`<span class="catalog-tag">🏷️ ${esc(row.promo_description)}</span>`:""}</div></article>`;
+  const rowHtml=(row,index)=>`<article class="catalog-card"><div class="ph"><div class="product-identity">${productPhoto(row,product.need_key,true)}<div><h3>${index===0?"🏆 ":""}${esc(row.chain)}</h3><div class="brand-line">${esc(row.brand)} · ${esc(row.product_name||product.name)}</div><div class="meta">${esc(row.branch||"")}${Number.isFinite(row.distance_km)?` · ${row.distance_km.toFixed(1)} ק״מ`:""}${row.is_online&&row.nearby_branch_name?` · סניף קרוב: ${esc(row.nearby_branch_name)}${Number.isFinite(row.nearby_distance_km)?` · ${row.nearby_distance_km.toFixed(1)} ק״מ`:""}`:""}</div>${row.is_online?'<span class="online-badge">🌐 מחיר אונליין · מחיר ומלאי בסניף לא אומתו</span>':""}</div></div><b style="font-size:1.05rem;color:var(--ok)">${formatMoney(row.effective_price)}</b></div><div class="catalog-tags">${Number.isFinite(row.score)?`<span class="catalog-tag">${Number(row.score).toFixed(2)} ₪ ${esc(row.normalized_unit_label||"")}</span>`:""}${row.promo_description?`<span class="catalog-tag">🏷️ ${esc(row.promo_description)}</span>`:""}</div></article>`;
   $("preferredPrices").innerHTML=preferred.length?preferred.map(rowHtml).join(""):`<div class="empty">${preferredBrand?"לא נמצאו כרגע מחירים ליצרן המועדף באזור שלך.":"לא נמצאו כרגע מחירים באזור שלך."}</div>`;
   $("alternativePrices").innerHTML=alternatives.length?alternatives.map(rowHtml).join(""):`<div class="empty">${preferredBrand?"לא נמצאו כרגע יצרנים חלופיים באזור שלך.":"לא נבחר יצרן מועדף, לכן כל המותגים כבר מוצגים ברשימה הראשית."}</div>`;
   if(preferred.length&&alternatives.length&&alternatives[0].effective_price<preferred[0].effective_price){const savings=preferred[0].effective_price-alternatives[0].effective_price;$("pricesNotice").innerHTML=`<div class="msg" style="margin-top:12px"><b>💡 כדאי לשים לב:</b> ${esc(alternatives[0].brand)} זול יותר ב־${formatMoney(savings)} מהמוצר של ${esc(preferredBrand||preferred[0].brand)}.</div>`}
@@ -2266,8 +2304,8 @@ function renderComparison(){
         <div class="photo-option-copy">${productPhoto(r,currentNeed?.need_key,true)}<div>
           <b>${i===bestEligibleIndex?"🏆 ":""}${r.preferred?"⭐ ":""}${esc(r.brand)}${r.product_name?" · "+esc(r.product_name):""}</b>
           <div><span class="chain-tag">${esc(r.chain)}</span></div>
-          <div class="meta">${esc(r.branch)}${r.address?" · "+esc(r.address):""}${r.is_online?" · משלוח/איסוף לפי זמינות":Number.isFinite(r.distance_km)?` · 📍 ${r.distance_km.toFixed(1)} ק״מ`:""}</div>
-          ${r.is_online?`<span class="online-badge">🌐 אונליין</span>`:""}
+          <div class="meta">${esc(r.branch)}${r.address?" · "+esc(r.address):""}${r.is_online&&r.nearby_branch_name?` · סניף קרוב: ${esc(r.nearby_branch_name)}${Number.isFinite(r.nearby_distance_km)?` · 📍 ${r.nearby_distance_km.toFixed(1)} ק״מ`:""}`:r.is_online?" · הזמנה באתר":Number.isFinite(r.distance_km)?` · 📍 ${r.distance_km.toFixed(1)} ק״מ`:""}</div>
+          ${r.is_online?`<span class="online-badge">🌐 מחיר אונליין · מחיר וזמינות בסניף לא אומתו</span>`:""}
           ${r.is_promotion?`<span class="promo">🏷️ מבצע פעיל</span>`:""}
         </div>
         </div>

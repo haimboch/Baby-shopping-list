@@ -44,6 +44,17 @@ from tests.test_v049_retailer_import_contract import (
     test_all_product_types_are_accepted_by_official_parsers,
     test_no_secret_is_embedded_in_repository_files,
 )
+from tests.test_v050_authorized_superpharm_bulk import (
+    test_v050_discovers_nested_baby_categories_without_adult_categories,
+    test_v050_bulk_parser_only_accepts_verified_baby_products,
+    test_v050_branch_import_preserves_provider_id_and_coordinates,
+    test_v050_bulk_import_collects_302_branches_and_200_products_per_call,
+    test_v050_daily_limit_stops_immediately_without_retries,
+    test_v050_worker_saves_locations_without_overwriting_existing_geocoding,
+    test_v050_successful_bulk_bootstrap_uses_four_hour_maintenance,
+    test_v050_workflows_keep_the_shared_free_api_budget_safe,
+    test_v050_frontend_marks_online_estimates_without_claiming_store_stock,
+)
 
 for fn in (
     test_classifier, test_expanded_baby_product_classifier,
@@ -84,6 +95,15 @@ for fn in (
     test_v049_has_shared_cache_cursor_and_coverage_diagnostics,
     test_all_product_types_are_accepted_by_official_parsers,
     test_no_secret_is_embedded_in_repository_files,
+    test_v050_discovers_nested_baby_categories_without_adult_categories,
+    test_v050_bulk_parser_only_accepts_verified_baby_products,
+    test_v050_branch_import_preserves_provider_id_and_coordinates,
+    test_v050_bulk_import_collects_302_branches_and_200_products_per_call,
+    test_v050_daily_limit_stops_immediately_without_retries,
+    test_v050_worker_saves_locations_without_overwriting_existing_geocoding,
+    test_v050_successful_bulk_bootstrap_uses_four_hour_maintenance,
+    test_v050_workflows_keep_the_shared_free_api_budget_safe,
+    test_v050_frontend_marks_online_estimates_without_claiming_store_stock,
 ):
     fn()
     print(f"✅ {fn.__name__}")

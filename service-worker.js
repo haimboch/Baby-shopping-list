@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v049-special-retailer-import";
+const CACHE="baby-smart-v050-superpharm-authorized-bulk";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{
