@@ -394,7 +394,7 @@ def test_v050_workflows_keep_the_shared_free_api_budget_safe():
 def test_v050_frontend_marks_online_estimates_without_claiming_store_stock():
     frontend = (ROOT / "index.html").read_text("utf-8")
     service = (ROOT / "service-worker.js").read_text("utf-8")
-    assert "Dashboard v0.50" in frontend
+    assert "Dashboard v0.5" in frontend
     assert "SUPER_PHARM_ONLINE_PROVIDER_ID" in frontend
     assert "nearestSuperPharm" in frontend
     assert "online_price_reference:true" in frontend
@@ -402,4 +402,4 @@ def test_v050_frontend_marks_online_estimates_without_claiming_store_stock():
     assert "in_store_stock_verified:false" in frontend
     assert "מחיר וזמינות בסניף אינם מאומתים" in frontend
     assert "אומדן לפי מחיר אונליין" in frontend
-    assert "baby-smart-v050-superpharm-authorized-bulk" in service
+    assert "baby-smart-v05" in service

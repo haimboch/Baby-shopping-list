@@ -111,6 +111,13 @@ globalThis.testApi = {
   shoppingBasketCard,
   fetchScopedPriceRows,
   matchingBasketRows,
+  parsePromotionBundle,
+  normalizePriceRowPromotion,
+  singlePackagePrice,
+  promotionSummary,
+  purchasePlanForQuote,
+  isMultiBuy,
+  basketPurchaseButtons,
   isOnlineBranch,
   inventoryPayload,
   authErrorMessage,
@@ -333,6 +340,64 @@ const baseRows = [
 }
 
 {
+  const parsed = api.parsePromotionBundle("2 יחידות ב-25 ₪");
+  assert.equal(parsed.quantity, 2);
+  assert.equal(parsed.total_price, 25);
+  assert.equal(api.parsePromotionBundle("מארז 4 יחידות 25 ₪"), null);
+
+  const chainIds = [
+    "rami_levy", "yochananof", "shufersal", "be", "osher_ad",
+    "super_pharm", "ksp",
+  ];
+  for (const [index, chainId] of chainIds.entries()) {
+    const branch = {
+      chain_id: chainId,
+      branch_code: `promo-${index}`,
+      branch_name: `סניף מבצע ${index}`,
+      latitude: 31.5,
+      longitude: 34.6,
+      distance_km: index + 0.5,
+    };
+    const offer = quote(branch, {
+      barcode: `promo-wipes-${index}`,
+      need_key: "wipes",
+      brand: "בייבי",
+      product_name: "מגבונים לתינוק",
+      regular_price: 14.9,
+      promo_price: 12.5,
+      effective_price: 12.5,
+      promo_description: "2 ב-25",
+      promo_min_quantity: 2,
+      promo_total_price: 25,
+      normalized_unit_price: 0.25,
+    });
+    const normalized = api.normalizePriceRowPromotion(offer);
+    assert.equal(api.isMultiBuy(normalized), true, chainId);
+    assert.equal(api.singlePackagePrice(normalized), 14.9, chainId);
+    assert.match(api.promotionSummary(normalized), /2 ב־25\.00 ₪/, chainId);
+
+    const single = api.purchasePlanForQuote(normalized, "single");
+    assert.equal(single.count, 1, chainId);
+    assert.equal(single.total, 14.9, chainId);
+    const promotion = api.purchasePlanForQuote(normalized, "promotion");
+    assert.equal(promotion.count, 2, chainId);
+    assert.equal(promotion.total, 25, chainId);
+    assert.equal(Number(promotion.unit_price.toFixed(2)), 12.5, chainId);
+    assert.equal(Number(promotion.savings.toFixed(2)), 4.8, chainId);
+
+    const basket = api.buildShoppingBaskets([wipes], [branch], [offer])[0];
+    assert.equal(basket.preferredTotal, 14.9, chainId);
+    assert.equal(basket.multiBuyCount, 1, chainId);
+    const card = api.shoppingBasketCard(basket, 0, 1);
+    assert.match(card, /הסכום הראשי מחושב לפי אריזה אחת/, chainId);
+    const buttons = api.basketPurchaseButtons(offer, wipes.id, "preferred", false);
+    assert.match(buttons, /1 ב־14\.90 ₪/, chainId);
+    assert.match(buttons, /2 ב־25\.00 ₪/, chainId);
+  }
+  process.stdout.write("✓ Multi-buy totals, choices and inventory quantities work across all seven retailers.\n");
+}
+
+{
   const superPharm = {
     chain_id: "super_pharm",
     branch_code: "sp-sderot",
@@ -398,4 +463,4 @@ const baseRows = [
   process.stdout.write("✓ Super-Pharm online estimates are transparent and never claim verified store stock.\n");
 }
 
-process.stdout.write("✓ All v0.47–v0.50 frontend behavior tests passed.\n");
+process.stdout.write("✓ All v0.47–v0.51 frontend behavior tests passed.\n");

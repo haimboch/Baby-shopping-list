@@ -27,7 +27,7 @@ class V048UiUxContractTests(unittest.TestCase):
 
     def test_approved_home_design_is_integrated(self):
         for marker in (
-            "Dashboard v0.49",
+            "Dashboard v0.5",
             'class="home-overview"',
             'id="heroAttention"',
             'id="heroTrackedSummary"',
@@ -75,7 +75,7 @@ class V048UiUxContractTests(unittest.TestCase):
         self.assertEqual(duplicates, [])
 
     def test_versioned_cache_and_manifest_match_the_design(self):
-        self.assertIn('baby-smart-v049-special-retailer-import', self.worker)
+        self.assertIn('baby-smart-v05', self.worker)
         self.assertIn('"background_color": "#f6f5fa"', self.manifest)
         self.assertIn('"theme_color": "#6555e7"', self.manifest)
 

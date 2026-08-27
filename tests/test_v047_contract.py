@@ -32,7 +32,7 @@ def test_v047_partial_baskets_and_savings_are_visible():
     assert "function buildShoppingBaskets(wanted,nearby,priceRows)" in source
     assert 'status:"missing"' in source
     assert 'status:"replaced"' in source
-    assert 'data-basket-choice="suggestion"' in source
+    assert 'basketPurchaseButtons(suggestion.row,item.product.id,"suggestion"' in source
     assert 'id="actualSavings"' in source
     assert 'id="potentialSavings"' in source
     assert 'sb.from("household_monthly_savings_v047")' in source
