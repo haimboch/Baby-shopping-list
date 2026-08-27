@@ -1,4 +1,3 @@
-
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -60,9 +59,30 @@ const document = {
   head: { appendChild() {} },
 };
 
+let scopedPriceRows = [];
+
 const fakeSupabase = {
   auth: {
     async getSession() { return { data: { session: null } }; },
+  },
+  from(table) {
+    assert.equal(table, "baby_normalized_prices");
+    const filters = {};
+    return {
+      select() { return this; },
+      in(column, values) { filters[column] = values; return this; },
+      not() { return this; },
+      eq() { return this; },
+      order() { return this; },
+      async range(start, end) {
+        const rows = scopedPriceRows.filter((row) =>
+          (!filters.branch_code || filters.branch_code.includes(String(row.branch_code)))
+          && (!filters.need_key || filters.need_key.includes(row.need_key))
+          && (!filters.chain_id || filters.chain_id.includes(row.chain_id)),
+        );
+        return { data: rows.slice(start, end + 1), error: null };
+      },
+    };
   },
 };
 
@@ -88,7 +108,10 @@ vm.runInContext(
   `${script}
 globalThis.testApi = {
   buildShoppingBaskets,
+  shoppingBasketCard,
+  fetchScopedPriceRows,
   matchingBasketRows,
+  isOnlineBranch,
   inventoryPayload,
   authErrorMessage,
   setState(next) {
@@ -309,4 +332,70 @@ const baseRows = [
   process.stdout.write("✓ Brand defaults, formula safeguards and clear login errors are preserved.\n");
 }
 
-process.stdout.write("✓ All v0.47 frontend behavior tests passed.\n");
+{
+  const superPharm = {
+    chain_id: "super_pharm",
+    branch_code: "sp-sderot",
+    branch_name: "סופר-פארם שדרות",
+    latitude: 31.525,
+    longitude: 34.595,
+    distance_km: 0.8,
+  };
+  const onlineEstimate = quote(superPharm, {
+    barcode: "d-preferred",
+    need_key: "diapers",
+    dimension_value: "4",
+    brand: "האגיס",
+    product_name: "האגיס חיתולים מידה 4",
+    effective_price: 29.9,
+    online_price_reference: true,
+    in_store_price_verified: false,
+    in_store_stock_verified: false,
+  });
+  scopedPriceRows = [{
+    ...onlineEstimate,
+    branch_code: "online",
+    online_price_reference: undefined,
+  }];
+  const scoped = await api.fetchScopedPriceRows([diapers], [superPharm]);
+  assert.equal(scoped.error, null);
+  assert.equal(scoped.data.length, 1);
+  assert.equal(scoped.data[0].branch_code, "sp-sderot");
+  assert.equal(scoped.data[0].online_price_reference, true);
+  assert.equal(scoped.data[0].in_store_stock_verified, false);
+
+  scopedPriceRows.push({
+    ...onlineEstimate,
+    effective_price: 35,
+    online_price_reference: false,
+  });
+  const physicalFirst = await api.fetchScopedPriceRows([diapers], [superPharm]);
+  assert.equal(physicalFirst.data.length, 1);
+  assert.equal(physicalFirst.data[0].effective_price, 35);
+
+  scopedPriceRows[1] = {
+    ...scopedPriceRows[1],
+    source_updated_at: stale,
+    last_seen_at: stale,
+  };
+  const staleFallsBackToOnline = await api.fetchScopedPriceRows([diapers], [superPharm]);
+  assert.equal(staleFallsBackToOnline.data.length, 2);
+  assert.equal(
+    staleFallsBackToOnline.data.filter((row) => row.online_price_reference).length,
+    1,
+  );
+
+  const baskets = api.buildShoppingBaskets([diapers], [superPharm], [onlineEstimate]);
+  assert.equal(baskets[0].onlineEstimate, true);
+  const card = api.shoppingBasketCard(baskets[0], 0, 1);
+  assert.match(card, /אומדן לפי מחיר אונליין/);
+  assert.match(card, /המחיר והמלאי בסניף הקרוב לא אומתו/);
+  assert.equal(api.isOnlineBranch(superPharm), false);
+  assert.equal(api.isOnlineBranch({chain_id: "super_pharm", branch_code: "online"}), true);
+  assert.equal(api.isOnlineBranch({
+    chain_id: "super_pharm", branch_code: "5f186c4390ae893cc6e86587",
+  }), true);
+  process.stdout.write("✓ Super-Pharm online estimates are transparent and never claim verified store stock.\n");
+}
+
+process.stdout.write("✓ All v0.47–v0.50 frontend behavior tests passed.\n");
