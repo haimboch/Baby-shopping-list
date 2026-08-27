@@ -55,6 +55,14 @@ from tests.test_v050_authorized_superpharm_bulk import (
     test_v050_workflows_keep_the_shared_free_api_budget_safe,
     test_v050_frontend_marks_online_estimates_without_claiming_store_stock,
 )
+from tests.test_v051_universal_multibuy_promotions import (
+    test_v051_parses_common_bundle_descriptions_conservatively,
+    test_v051_normalizes_unit_total_and_description_only_promotions,
+    test_v051_applies_same_bundle_logic_to_every_product_and_retailer,
+    test_v051_resolves_live_feed_total_convention_and_best_concurrent_offer,
+    test_v051_xml_parser_keeps_distinct_deals_without_cross_contamination,
+    test_v051_date_only_promotions_last_through_end_of_day_in_israel,
+)
 
 for fn in (
     test_classifier, test_expanded_baby_product_classifier,
@@ -104,6 +112,12 @@ for fn in (
     test_v050_successful_bulk_bootstrap_uses_four_hour_maintenance,
     test_v050_workflows_keep_the_shared_free_api_budget_safe,
     test_v050_frontend_marks_online_estimates_without_claiming_store_stock,
+    test_v051_parses_common_bundle_descriptions_conservatively,
+    test_v051_normalizes_unit_total_and_description_only_promotions,
+    test_v051_applies_same_bundle_logic_to_every_product_and_retailer,
+    test_v051_resolves_live_feed_total_convention_and_best_concurrent_offer,
+    test_v051_xml_parser_keeps_distinct_deals_without_cross_contamination,
+    test_v051_date_only_promotions_last_through_end_of_day_in_israel,
 ):
     fn()
     print(f"✅ {fn.__name__}")

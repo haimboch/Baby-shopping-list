@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.50</title>
+<title>Baby Smart List · Dashboard v0.51</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -86,6 +86,7 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 .result-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.price{font-size:1.28rem;font-weight:900}.unit-price{font-size:.8rem;color:var(--muted);margin-top:2px}
 .promo{display:inline-block;background:#fff1f3;color:#b33149;border-radius:999px;padding:4px 7px;font-size:.7rem;font-weight:800;margin-top:5px}
 .promo-terms{margin-top:7px;padding:8px 9px;border-radius:10px;background:#fff8f1;color:#78450d;font-size:.73rem;line-height:1.45}.old-price{font-size:.74rem;color:var(--muted);text-decoration:line-through}.online-badge{display:inline-block;background:#eef5ff;color:#245a9a;border-radius:999px;padding:4px 7px;font-size:.7rem;font-weight:800;margin-top:5px}
+.promo-choice{margin:10px 0;padding:11px;border:1px solid #f1d39b;background:#fffaf0;border-radius:13px;color:#70450e}.promo-choice b{display:block}.promo-choice small{display:block;margin-top:3px;line-height:1.45}.promo-choice-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.promo-choice-actions .active{background:#c66a10;border-color:#c66a10;color:#fff;font-weight:900}.multi-buy-hint{margin-top:7px;padding:7px 8px;border-radius:9px;background:#fff3dc;color:#75470e;font-size:.72rem;line-height:1.45}.basket-promo-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.basket-promo-actions .btn{font-size:.75rem;padding:8px}.basket-promo-terms{margin-top:7px;color:#78450d;font-size:.72rem;line-height:1.4}
 .loc-summary{background:#f7f7fb;border:1px solid var(--line);border-radius:12px;padding:10px;font-size:.83rem;margin:10px 0}
 .loading{padding:30px;text-align:center;color:var(--muted)}.feedback{border-top:1px solid var(--line);margin-top:15px;padding-top:12px}.feedback .actions{margin-top:8px}
 .purchase-box{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}.saving{font-weight:900;color:#087c58}
@@ -507,7 +508,7 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.50</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.51</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 <nav class="app-bottom-nav" aria-label="ניווט ראשי">
   <button class="app-nav-item active" data-app-nav="dashboard" aria-current="page"><span class="app-nav-icon" aria-hidden="true">⌂</span><small>הבית</small></button>
@@ -714,8 +715,16 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
 <div id="purchasebox" class="purchase-box hidden">
 <h3 style="margin-top:0">🛒 תיעוד קנייה</h3>
 <div id="purchaseitem" class="sub"></div>
+<div id="purchasepromo" class="promo-choice hidden">
+  <b id="purchasepromotitle">מבצע כמות זמין</b>
+  <small id="purchasepromoterms"></small>
+  <div class="promo-choice-actions">
+    <button type="button" class="btn" id="purchasesingle">אריזה אחת</button>
+    <button type="button" class="btn" id="purchasebundle">ניצול המבצע</button>
+  </div>
+</div>
 <div class="two">
-  <div class="field"><label>מחיר ששולם</label><input id="paidprice" type="number" min="0" step="0.01"></div>
+  <div class="field"><label>מחיר ממוצע לאריזה</label><input id="paidprice" type="number" min="0" step="0.01"></div>
   <div class="field"><label>מספר אריזות</label><input id="packcount" type="number" min="1" step="1" value="1"></div>
 </div>
 <div class="field"><label>הערה</label><input id="purchasenote" placeholder="אופציונלי"></div>
@@ -1595,12 +1604,12 @@ async function fetchScopedPriceRows(products,branches,maxRows=10000){
   const localSuperPharm=branches.filter(branch=>branch.chain_id==="super_pharm"&&!isOnlineBranch(branch));
   const codes=[...new Set([...branches.map(branch=>String(branch.branch_code)),...(localSuperPharm.length?["online",SUPER_PHARM_ONLINE_PROVIDER_ID]:[])])];
   if(!needs.length||!codes.length)return {data:[],error:null};
-  const fields="chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,effective_price,regular_price,promo_price,normalized_unit_price,normalized_unit_label,source_updated_at,last_seen_at,promo_description,image_url";
+  const fields="chain_id,branch_code,barcode,need_key,dimension_type,dimension_value,brand,product_name,effective_price,regular_price,promo_price,promo_description,promo_start_at,promo_end_at,promo_min_quantity,promo_total_price,requires_club,canonical_package_quantity,canonical_package_unit,normalized_unit_price,normalized_unit_label,source_updated_at,last_seen_at,image_url";
   const rows=[],pageSize=1000;
   for(let offset=0;offset<maxRows;offset+=pageSize){
     const response=await sb.from("baby_normalized_prices").select(fields).in("need_key",needs).in("chain_id",ACTIVE_CHAINS).in("branch_code",codes).not("effective_price","is",null).eq("unresolved_quantity_conflict",false).order("chain_id").order("branch_code").order("barcode").range(offset,offset+pageSize-1);
     if(response.error)return response;
-    rows.push(...(response.data||[]));
+    rows.push(...(response.data||[]).map(normalizePriceRowPromotion));
     if((response.data||[]).length<pageSize)break;
   }
   const branchKeys=new Set(branches.map(branch=>`${branch.chain_id}|${branch.branch_code}`));
@@ -1631,11 +1640,11 @@ async function calculatePotentialSavings(){
   for(const product of relevant){
     let bestSaving=0;
     for(const branch of nearby.data){
-      const matches=(prices.data||[]).filter(row=>row.chain_id===branch.chain_id&&String(row.branch_code)===String(branch.branch_code)&&row.need_key===product.need_key&&(!product.dimension_value||String(row.dimension_value||"")===String(product.dimension_value))&&priceFreshness(row).eligible&&cleanPilotCandidate(row,product)).sort((a,b)=>Number(a.effective_price)-Number(b.effective_price));
+      const matches=(prices.data||[]).map(normalizePriceRowPromotion).filter(row=>row.chain_id===branch.chain_id&&String(row.branch_code)===String(branch.branch_code)&&row.need_key===product.need_key&&(!product.dimension_value||String(row.dimension_value||"")===String(product.dimension_value))&&priceFreshness(row).eligible&&cleanPilotCandidate(row,product)).sort((a,b)=>singlePackagePrice(a)-singlePackagePrice(b));
       const preferred=matches.find(row=>String(row.barcode)===String(product.preferred_barcode));
       if(!preferred)continue;
-      const alternative=matches.find(row=>row.brand!==preferred.brand&&Number(row.effective_price)<Number(preferred.effective_price));
-      if(alternative)bestSaving=Math.max(bestSaving,Number(preferred.effective_price)-Number(alternative.effective_price));
+      const alternative=matches.find(row=>row.brand!==preferred.brand&&singlePackagePrice(row)<singlePackagePrice(preferred));
+      if(alternative)bestSaving=Math.max(bestSaving,singlePackagePrice(preferred)-singlePackagePrice(alternative));
     }
     total+=bestSaving;
   }
@@ -1823,6 +1832,88 @@ function updateLocationButton(){
   $("locationText").textContent=hasCoords(household)?`${label} · ${radius} ק״מ`:`${label} · דרוש מיקום`;
 }
 function formatMoney(x){return Number.isFinite(Number(x))?`${Number(x).toFixed(2)} ₪`:"—"}
+function promoNumber(value){
+  if(value==null||value==="")return null;
+  const number=Number(String(value).replace(",",".").replace(/[^0-9.\-]/g,""));
+  return Number.isFinite(number)&&number>0?number:null
+}
+function parsePromotionBundle(description){
+  const text=String(description||"").replace(/[\u200e\u200f]/g,"").replace(/[־–—]/g,"-").replace(/\s+/g," ").trim();
+  if(!text)return null;
+  const unit="(?:יחידות?|יחידה|יח['׳״]?|אריזות?|אריזה|מארזים?|מארז|חבילות?|חבילה|פריטים?|פריט|packs?|items?|pcs?)";
+  const currency="(?:₪|ש[\"״׳']?ח|שח|nis)?";
+  const amount="(\\d+(?:[.,]\\d{1,2})?)";
+  const patterns=[
+    new RegExp("(?:^|\\D)(\\d{1,3})\\s*(?:"+unit+"\\s*)?(?:במחיר(?:\\s+של)?|ב|for|/)\\s*[-:]?\\s*"+currency+"\\s*"+amount,"i"),
+    new RegExp("(?:מחיר\\s*)?ל\\s*-?\\s*(\\d{1,3})\\s*(?:"+unit+"\\s*)?(?:ב\\s*-?\\s*)?"+currency+"\\s*"+amount,"i"),
+    new RegExp(currency+"\\s*"+amount+"\\s*"+currency+"\\s*(?:ל|עבור|for)\\s*-?\\s*(\\d{1,3})(?:\\s*"+unit+")?","i")
+  ];
+  for(let index=0;index<patterns.length;index++){
+    const match=text.match(patterns[index]);if(!match)continue;
+    const quantity=Number(index===2?match[2]:match[1]);
+    const total=Number(String(index===2?match[1]:match[2]).replace(",","."));
+    if(Number.isInteger(quantity)&&quantity>1&&quantity<=100&&Number.isFinite(total)&&total>0)return {quantity,total_price:total,kind:"fixed_total"}
+  }
+  const free=text.match(/(?:^|\D)(\d{1,2})\s*\+\s*(\d{1,2})\s*(?:יחידות?|יח['׳״]?|אריזות?|מארזים?|חבילות?|packs?|items?|pcs?)?\s*(?:חינם|מתנה|free)/i);
+  if(free){const paid=Number(free[1]),gift=Number(free[2]);if(paid>0&&gift>0&&paid+gift<=100)return {quantity:paid+gift,paid_quantity:paid,free_quantity:gift,kind:"buy_get_free"}}
+  return null
+}
+function promotionBoundaryMs(value,end=false){
+  if(!value)return null;const text=String(value).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(text)){const [year,month,day]=text.split("-").map(Number);return new Date(year,month-1,day,end?23:0,end?59:0,end?59:0,end?999:0).getTime()}
+  const time=new Date(text).getTime();return Number.isFinite(time)?time:null
+}
+function promotionTerms(row){
+  const regular=promoNumber(row?.regular_price),description=String(row?.promo_description||"").trim();
+  let quantity=Math.max(1,Math.round(promoNumber(row?.promo_min_quantity)||1));
+  let total=promoNumber(row?.promo_total_price),unitPrice=promoNumber(row?.promo_price);
+  const parsed=parsePromotionBundle(description);
+  if(parsed){
+    if(quantity<=1)quantity=parsed.quantity;
+    if(parsed.kind==="fixed_total"&&(!total||quantity===parsed.quantity))total=parsed.total_price;
+    if(parsed.kind==="buy_get_free"&&regular&&quantity===parsed.quantity)total=regular*parsed.paid_quantity
+  }
+  if(quantity>1){
+    if(total)unitPrice=total/quantity;
+    else if(unitPrice&&regular&&unitPrice<regular)total=unitPrice*quantity;
+    else if(unitPrice&&regular&&unitPrice/quantity<regular){total=unitPrice;unitPrice=total/quantity}
+    else unitPrice=null
+  }else{
+    if(!unitPrice&&total)unitPrice=total;
+    if(!total&&unitPrice)total=unitPrice
+  }
+  const now=Date.now(),start=promotionBoundaryMs(row?.promo_start_at),end=promotionBoundaryMs(row?.promo_end_at,true);
+  const inDate=(!start||start<=now)&&(!end||end>=now);
+  const active=!!(inDate&&regular&&unitPrice&&unitPrice<regular);
+  return {active,regular_price:regular,promo_price:active?unitPrice:null,promo_min_quantity:quantity,promo_total_price:total,description,requires_club:!!row?.requires_club}
+}
+function normalizePriceRowPromotion(row){
+  const source={...(row||{})},terms=promotionTerms(source),baseEffective=promoNumber(source.effective_price),regular=promoNumber(source.regular_price);
+  const effective=terms.active?terms.promo_price:(regular||baseEffective);
+  const baseScore=promoNumber(source.normalized_unit_price);
+  const normalizedScore=baseScore&&baseEffective&&effective?baseScore*effective/baseEffective:source.normalized_unit_price;
+  return {...source,effective_price:effective??source.effective_price,normalized_unit_price:normalizedScore,promo_price:terms.active?terms.promo_price:null,promo_min_quantity:terms.promo_min_quantity,promo_total_price:terms.promo_total_price,promo_description:terms.description||source.promo_description,requires_club:terms.requires_club,is_promotion:terms.active}
+}
+function isMultiBuy(row){const terms=promotionTerms(row);return !!(terms.active&&terms.promo_min_quantity>1&&terms.promo_total_price)}
+function singlePackagePrice(row){const normalized=normalizePriceRowPromotion(row),terms=promotionTerms(normalized);return terms.active&&terms.promo_min_quantity>1?terms.regular_price:Number(normalized.effective_price)}
+function promotionSummary(row){
+  const terms=promotionTerms(row);if(!terms.active)return "";
+  if(terms.promo_min_quantity>1&&terms.promo_total_price)return `${terms.promo_min_quantity} ב־${formatMoney(terms.promo_total_price)} · ${formatMoney(terms.promo_price)} לאריזה${terms.requires_club?" · לחברי מועדון":""}`;
+  return `${terms.description||"מחיר מבצע"}${terms.requires_club?" · לחברי מועדון":""}`
+}
+function purchasePlanForQuote(row,mode="single",requestedCount=null){
+  const normalized=normalizePriceRowPromotion(row),terms=promotionTerms(normalized);
+  let count=Math.max(1,Math.round(Number(requestedCount||1))),unitPrice=singlePackagePrice(normalized),total=unitPrice*count,valid=true;
+  if(mode==="promotion"&&terms.active&&terms.promo_min_quantity>1&&terms.promo_total_price){
+    if(requestedCount==null)count=terms.promo_min_quantity;
+    if(count<terms.promo_min_quantity)valid=false;
+    const bundles=Math.floor(count/terms.promo_min_quantity),remainder=count%terms.promo_min_quantity;
+    total=bundles*terms.promo_total_price+remainder*terms.regular_price;
+    unitPrice=total/count
+  }else if(terms.active&&terms.promo_min_quantity<=1){unitPrice=terms.promo_price;total=unitPrice*count}
+  const referenceUnit=terms.regular_price||singlePackagePrice(normalized),savings=Math.max(0,referenceUnit*count-total);
+  return {valid,count,unit_price:unitPrice,total,reference_unit:referenceUnit,savings,mode,terms}
+}
 function scoreLabel(mode){
   return mode==="unit"?"₪ ליחידה":mode==="100g"?"₪ ל־100 גרם":mode==="100ml"?"₪ ל־100 מ״ל":"₪ לאריזה";
 }
@@ -1891,13 +1982,11 @@ function freshnessRank(r){
 }
 
 function promotionIsActive(r){
-  const now=Date.now(),start=r?.promo_start_at?new Date(r.promo_start_at).getTime():null,end=r?.promo_end_at?new Date(r.promo_end_at).getTime():null;
-  if(start&&Number.isFinite(start)&&start>now)return false;
-  if(end&&Number.isFinite(end)&&end<now)return false;
-  return Number(r?.promo_price)>0&&Number(r?.regular_price)>Number(r?.promo_price);
+  return promotionTerms(r).active;
 }
 
 function directQuote(r,p){
+  r=normalizePriceRowPromotion(r);
   const branch=r.branch_name||`סניף ${r.branch_code}`;
   const freshness=priceFreshness(r);
   const activePromotion=promotionIsActive(r);
@@ -1915,7 +2004,7 @@ function directQuote(r,p){
     brand:r.brand||"מותג לא ידוע",
     product_name:r.product_name||"",
     image_url:r.image_url||null,
-    effective_price:Number(r.best_price),
+    effective_price:Number(r.effective_price??r.best_price),
     package_quantity:r.canonical_package_quantity==null?null:Number(r.canonical_package_quantity),
     package_unit:r.canonical_package_unit||null,
     score:r.normalized_unit_price==null?null:Number(r.normalized_unit_price),
@@ -2103,7 +2192,7 @@ function branchWazeUrl(branch){return `https://waze.com/ul?ll=${encodeURICompone
 function matchingBasketRows(rows,product){
   const config=NEEDS[product.need_key]||NEEDS.other;
   if(!SUPPORTED_NEEDS.has(product.need_key)||(config.dimension_type!=="none"&&!product.dimension_value))return [];
-  return rows.filter(row=>row.need_key===product.need_key&&(!product.dimension_value||String(row.dimension_value||"")===String(product.dimension_value))&&priceFreshness(row).eligible&&cleanPilotCandidate(row,product)).sort((a,b)=>Number(a.effective_price)-Number(b.effective_price));
+  return rows.map(normalizePriceRowPromotion).filter(row=>row.need_key===product.need_key&&(!product.dimension_value||String(row.dimension_value||"")===String(product.dimension_value))&&priceFreshness(row).eligible&&cleanPilotCandidate(row,product)).sort((a,b)=>singlePackagePrice(a)-singlePackagePrice(b)||Number(a.effective_price)-Number(b.effective_price));
 }
 function basketMissingReason(product){
   if(!SUPPORTED_NEEDS.has(product.need_key))return "עדיין אין מידע אוטומטי לסוג המוצר הזה.";
@@ -2127,7 +2216,7 @@ function buildShoppingBaskets(wanted,nearby,priceRows){
       const row=rows[0];
       suggestions.push({branch,row,replaced:!!product.preferred_barcode&&String(row.barcode)!==String(product.preferred_barcode)});
     }
-    return suggestions.sort((a,b)=>Number(a.row.effective_price)-Number(b.row.effective_price)||a.branch.distance_km-b.branch.distance_km).slice(0,3);
+    return suggestions.sort((a,b)=>singlePackagePrice(a.row)-singlePackagePrice(b.row)||a.branch.distance_km-b.branch.distance_km).slice(0,3);
   };
   return nearby.map(branch=>{
     const rows=branchRows.get(`${branch.chain_id}|${branch.branch_code}`)||[];
@@ -2141,16 +2230,17 @@ function buildShoppingBaskets(wanted,nearby,priceRows){
         return {product,preferred:null,selected,alternative:null,status:"replaced",reason:"היצרן המועדף לא נמצא; נבחרה חלופה מתאימה.",suggestions:[],preferredBrand};
       }
       const selected=preferred||matching[0];
-      const cheaper=product.need_key!=="formula"&&product.preferred_barcode&&product.allow_alternatives!==false?matching.find(row=>row.brand!==selected.brand&&Number(row.effective_price)<Number(selected.effective_price)):null;
+      const cheaper=product.need_key!=="formula"&&product.preferred_barcode&&product.allow_alternatives!==false?matching.find(row=>row.brand!==selected.brand&&singlePackagePrice(row)<singlePackagePrice(selected)):null;
       return {product,preferred:selected,selected,alternative:cheaper||null,status:product.preferred_barcode?"preferred":"all_brands",suggestions:[],preferredBrand};
     });
     const available=chosen.filter(item=>item.selected),missing=chosen.filter(item=>!item.selected);
-    const preferredTotal=available.reduce((sum,item)=>sum+Number(item.selected.effective_price),0);
-    const smartTotal=available.reduce((sum,item)=>sum+Number((item.alternative||item.selected).effective_price),0);
-    const completionTotal=missing.reduce((sum,item)=>sum+Number(item.suggestions[0]?.row.effective_price||0),0);
+    const preferredTotal=available.reduce((sum,item)=>sum+singlePackagePrice(item.selected),0);
+    const smartTotal=available.reduce((sum,item)=>sum+singlePackagePrice(item.alternative||item.selected),0);
+    const completionTotal=missing.reduce((sum,item)=>sum+(item.suggestions[0]?singlePackagePrice(item.suggestions[0].row):0),0);
     const unresolvedCount=missing.filter(item=>!item.suggestions.length).length;
     const onlineEstimate=available.some(item=>item.selected?.online_price_reference||item.alternative?.online_price_reference);
-    return {branch,chosen,availableCount:available.length,missingCount:missing.length,replacedCount:chosen.filter(item=>item.status==="replaced").length,unresolvedCount,preferredTotal,smartTotal,completionTotal,projectedTotal:unresolvedCount?null:smartTotal+completionTotal,savings:Math.max(0,preferredTotal-smartTotal),onlineEstimate};
+    const multiBuyCount=chosen.filter(item=>item.selected&&isMultiBuy(item.alternative||item.selected)).length;
+    return {branch,chosen,availableCount:available.length,missingCount:missing.length,replacedCount:chosen.filter(item=>item.status==="replaced").length,unresolvedCount,preferredTotal,smartTotal,completionTotal,projectedTotal:unresolvedCount?null:smartTotal+completionTotal,savings:Math.max(0,preferredTotal-smartTotal),onlineEstimate,multiBuyCount};
   }).sort((a,b)=>a.missingCount-b.missingCount||a.unresolvedCount-b.unresolvedCount||(a.projectedTotal??Infinity)-(b.projectedTotal??Infinity)||a.smartTotal-b.smartTotal||a.branch.distance_km-b.branch.distance_km);
 }
 function shoppingBasketCard(basket,index,wantedCount){
@@ -2159,12 +2249,13 @@ function shoppingBasketCard(basket,index,wantedCount){
   const cheaper=basket.chosen.filter(item=>item.alternative);
   const missing=basket.chosen.filter(item=>item.status==="missing");
   const changes=replacements.length?`<div class="basket-alert"><b>🔄 הוחלפו יצרנים:</b>${replacements.map(item=>`<div>${esc(item.product.name)}: ${esc(item.preferredBrand||"יצרן מועדף")} ← ${esc(item.selected.brand||"חלופה")}</div>`).join("")}</div>`:"";
-  const shortage=missing.length?`<div class="basket-alert missing"><b>⚠️ מוצרים חסרים בסניף:</b>${missing.map(item=>`<div>${esc(item.product.name)}${item.suggestions[0]?` · אפשר להשלים ב${esc(CHAIN_LABELS[item.suggestions[0].branch.chain_id]||item.suggestions[0].branch.chain_id)} ב־${formatMoney(item.suggestions[0].row.effective_price)}`:" · עדיין לא נמצא בסביבה"}</div>`).join("")}</div>`:"";
+  const shortage=missing.length?`<div class="basket-alert missing"><b>⚠️ מוצרים חסרים בסניף:</b>${missing.map(item=>`<div>${esc(item.product.name)}${item.suggestions[0]?` · אפשר להשלים ב${esc(CHAIN_LABELS[item.suggestions[0].branch.chain_id]||item.suggestions[0].branch.chain_id)} ב־${formatMoney(singlePackagePrice(item.suggestions[0].row))}${isMultiBuy(item.suggestions[0].row)?` · מבצע: ${esc(promotionSummary(item.suggestions[0].row))}`:""}`:" · עדיין לא נמצא בסביבה"}</div>`).join("")}</div>`:"";
   const discount=basket.savings>0?`<div class="msg" style="margin-top:10px"><b>💡 חלופות זולות יכולות לחסוך ${formatMoney(basket.savings)}</b>${cheaper.map(item=>`<div class="meta">${esc(item.product.name)}: ${esc(item.selected.brand)} ← ${esc(item.alternative.brand)}</div>`).join("")}</div>`:"";
   const onlineNotice=basket.onlineEstimate?'<div class="basket-alert"><b>🌐 מחירי אונליין להשוואה:</b> חלק מהמוצרים מוצגים לפי אתר סופר־פארם. המחיר והמלאי בסניף הקרוב לא אומתו.</div>':"";
+  const promotionNotice=basket.multiBuyCount?`<div class="basket-alert"><b>🏷️ ${basket.multiBuyCount} מבצעי כמות זמינים:</b> הסכום הראשי מחושב לפי אריזה אחת מכל מוצר. בתוך רשימת הקניות תוכלו לבחור אם לנצל כל מבצע ולעדכן את המלאי בכמות שנקנתה.</div>`:"";
   const secondLabel=basket.missingCount?"כולל השלמה משוערת":"עם חלופות זולות";
   const secondPrice=basket.missingCount?(basket.projectedTotal==null?"לא זמין":formatMoney(basket.projectedTotal)):formatMoney(basket.smartTotal);
-  return `<article class="catalog-card"><div class="ph"><div><h3>${index===0?"🏆 ":""}${esc(CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id)}</h3><div class="meta">${esc(basket.branch.branch_name||"")} · ${basket.branch.distance_km.toFixed(1)} ק״מ</div></div><span class="catalog-tag">${basket.availableCount}/${wantedCount} מוצרים</span></div><div style="margin-top:9px">${state}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px"><div><small>${basket.onlineEstimate?"🌐 אומדן לפי מחיר אונליין":"🛒 לתשלום בסניף"}</small><br><b>${formatMoney(basket.preferredTotal)}</b></div><div><small>💡 ${secondLabel}</small><br><b style="color:var(--ok)">${secondPrice}</b></div></div>${onlineNotice}${changes}${shortage}${discount}<div class="basket-actions"><a class="btn soft" href="${esc(branchWazeUrl(basket.branch))}" target="_blank" rel="noopener noreferrer">📍 ניווט ב־Waze</a><button class="btn primary" data-open-basket="${index}">🛒 רשימת קניות</button></div></article>`;
+  return `<article class="catalog-card"><div class="ph"><div><h3>${index===0?"🏆 ":""}${esc(CHAIN_LABELS[basket.branch.chain_id]||basket.branch.chain_id)}</h3><div class="meta">${esc(basket.branch.branch_name||"")} · ${basket.branch.distance_km.toFixed(1)} ק״מ</div></div><span class="catalog-tag">${basket.availableCount}/${wantedCount} מוצרים</span></div><div style="margin-top:9px">${state}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px"><div><small>${basket.onlineEstimate?"🌐 אומדן לפי מחיר אונליין · אריזה אחת מכל מוצר":"🛒 אריזה אחת מכל מוצר"}</small><br><b>${formatMoney(basket.preferredTotal)}</b></div><div><small>💡 ${secondLabel} · אריזה אחת</small><br><b style="color:var(--ok)">${secondPrice}</b></div></div>${onlineNotice}${promotionNotice}${changes}${shortage}${discount}<div class="basket-actions"><a class="btn soft" href="${esc(branchWazeUrl(basket.branch))}" target="_blank" rel="noopener noreferrer">📍 ניווט ב־Waze</a><button class="btn primary" data-open-basket="${index}">🛒 רשימת קניות</button></div></article>`;
 }
 async function openShoppingBasket(){
   shoppingBaskets=[];activeShoppingBasket=null;purchasedShoppingItems.clear();
@@ -2190,6 +2281,13 @@ function openBasketDetails(index){
   $("shoppingBranchAddress").textContent=[basket.branch.address,basket.branch.city].filter(Boolean).join(" · ")||"סניף באזור שלך";
   renderBasketDetails();appPage("shoppingDetailsPage");
 }
+function basketPurchaseButtons(row,productId,choice,busy,suggestionIndex=null){
+  const normalized=normalizePriceRowPromotion(row),multi=isMultiBuy(normalized),suggestion=suggestionIndex==null?"":` data-basket-suggestion="${suggestionIndex}"`;
+  const base=`data-basket-buy="${esc(productId)}" data-basket-choice="${esc(choice)}"${suggestion}`;
+  if(!multi)return `<button class="btn primary" ${base} data-basket-mode="single" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":`✓ קניתי ב־${formatMoney(singlePackagePrice(normalized))}`}</button>`;
+  const terms=promotionTerms(normalized);
+  return `<div class="basket-promo-actions"><button class="btn" ${base} data-basket-mode="single" ${busy?"disabled":""}>${busy?"מעדכן…":`1 ב־${formatMoney(terms.regular_price)}`}</button><button class="btn primary" ${base} data-basket-mode="promotion" ${busy?"disabled":""}>${busy?"מעדכן…":`${terms.promo_min_quantity} ב־${formatMoney(terms.promo_total_price)}`}</button></div>`
+}
 function renderBasketDetails(){
   const basket=activeShoppingBasket;if(!basket)return;
   const done=basket.chosen.filter(item=>purchasedShoppingItems.has(item.product.id)).length;
@@ -2197,36 +2295,45 @@ function renderBasketDetails(){
   $("shoppingItems").innerHTML=basket.chosen.map(item=>{
     const saved=purchasedShoppingItems.get(item.product.id),busy=pendingShoppingPurchases.has(item.product.id);
     const description=item.product.dimension_value?`${item.product.dimension_type==="stage"?"שלב":"מידה"} ${item.product.dimension_value}`:"";
-    if(saved)return `<article class="catalog-card shopping-item is-bought"><div class="ph"><div><h3>${esc(item.product.name)}</h3>${description?`<div class="meta">${esc(description)}</div>`:""}</div><span class="catalog-tag">✓ נקנה</span></div><div class="shopping-complete">✅ נקנה ${esc(saved.brand)} ב־${formatMoney(saved.price)} · המלאי עודכן</div></article>`;
+    if(saved)return `<article class="catalog-card shopping-item is-bought"><div class="ph"><div><h3>${esc(item.product.name)}</h3>${description?`<div class="meta">${esc(description)}</div>`:""}</div><span class="catalog-tag">✓ נקנה</span></div><div class="shopping-complete">✅ נקנו ${saved.count||1} אריזות של ${esc(saved.brand)} · סה״כ ${formatMoney(saved.total??saved.price)} · המלאי עודכן</div></article>`;
     if(!item.selected){
-      const suggestions=item.suggestions.length?`<div class="completion-options">${item.suggestions.map((suggestion,index)=>`<div class="completion-option"><div class="ph"><div class="photo-option-copy">${productPhoto(suggestion.row,item.product.need_key,true)}<div><b>${esc(CHAIN_LABELS[suggestion.branch.chain_id]||suggestion.branch.chain_id)} · ${esc(suggestion.row.brand||"מותג")}</b><div class="meta">${esc(suggestion.branch.branch_name||"")} · ${suggestion.branch.distance_km.toFixed(1)} ק״מ${suggestion.replaced?" · יצרן חלופי":""}</div></div></div><b>${formatMoney(suggestion.row.effective_price)}</b></div><div class="basket-actions"><a class="btn soft" href="${esc(branchWazeUrl(suggestion.branch))}" target="_blank" rel="noopener noreferrer">📍 ניווט</a><button class="btn primary" data-basket-buy="${item.product.id}" data-basket-choice="suggestion" data-basket-suggestion="${index}" ${busy?"disabled":""}>${busy?"מעדכן…":"✓ קניתי"}</button></div></div>`).join("")}</div>`:'<div class="meta">לא נמצאה כרגע אפשרות השלמה ברדיוס שהוגדר.</div>';
+      const suggestions=item.suggestions.length?`<div class="completion-options">${item.suggestions.map((suggestion,index)=>`<div class="completion-option"><div class="ph"><div class="photo-option-copy">${productPhoto(suggestion.row,item.product.need_key,true)}<div><b>${esc(CHAIN_LABELS[suggestion.branch.chain_id]||suggestion.branch.chain_id)} · ${esc(suggestion.row.brand||"מותג")}</b><div class="meta">${esc(suggestion.branch.branch_name||"")} · ${suggestion.branch.distance_km.toFixed(1)} ק״מ${suggestion.replaced?" · יצרן חלופי":""}</div></div></div><b>${formatMoney(singlePackagePrice(suggestion.row))}</b></div>${isMultiBuy(suggestion.row)?`<div class="basket-promo-terms">🏷️ ${esc(promotionSummary(suggestion.row))}</div>`:""}<div class="basket-actions"><a class="btn soft" href="${esc(branchWazeUrl(suggestion.branch))}" target="_blank" rel="noopener noreferrer">📍 ניווט</a>${basketPurchaseButtons(suggestion.row,item.product.id,"suggestion",busy,index)}</div></div>`).join("")}</div>`:'<div class="meta">לא נמצאה כרגע אפשרות השלמה ברדיוס שהוגדר.</div>';
       return `<article class="catalog-card shopping-item"><div class="ph"><div><h3>${esc(item.product.name)}</h3>${description?`<div class="meta">${esc(description)}</div>`:""}</div><span class="basket-state missing">חסר</span></div><div class="basket-alert missing">${esc(item.reason||"המוצר חסר בסניף.")}</div>${suggestions}</article>`;
     }
     const badge=item.status==="replaced"?'<span class="basket-state replaced">הוחלף</span>':item.status==="all_brands"?'<span class="basket-state complete">כל המותגים</span>':"";
     const label=item.status==="replaced"?`🔄 ${esc(item.selected.brand)} · במקום ${esc(item.preferredBrand||"היצרן שנבחר")}`:item.status==="all_brands"?`💡 ${esc(item.selected.brand)} · המחיר המשתלם`:`⭐ ${esc(item.selected.brand)}`;
-    const preferred=`<div class="shopping-option"><div class="shopping-option-head"><div class="photo-option-copy">${productPhoto(item.selected,item.product.need_key,true)}<div><b>${label}</b><br><small>${esc(item.selected.product_name||item.product.name)}</small>${item.selected.online_price_reference?'<br><span class="online-badge">🌐 מחיר אונליין · הסניף לא אומת</span>':""}</div></div><strong>${formatMoney(item.selected.effective_price)}</strong></div><button class="btn primary" data-basket-buy="${item.product.id}" data-basket-choice="preferred" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":"✓ קניתי"}</button></div>`;
-    const alternative=item.alternative?`<div class="shopping-option alternative"><div class="shopping-option-head"><div class="photo-option-copy">${productPhoto(item.alternative,item.product.need_key,true)}<div><b>💡 חלופה זולה: ${esc(item.alternative.brand)}</b><br><small>חיסכון של ${formatMoney(Number(item.selected.effective_price)-Number(item.alternative.effective_price))}</small>${item.alternative.online_price_reference?'<br><span class="online-badge">🌐 מחיר אונליין · הסניף לא אומת</span>':""}</div></div><strong>${formatMoney(item.alternative.effective_price)}</strong></div><button class="btn soft" data-basket-buy="${item.product.id}" data-basket-choice="alternative" ${busy?"disabled":""}>${busy?"מעדכן מלאי…":"✓ קניתי חלופה"}</button></div>`:"";
+    const preferred=`<div class="shopping-option"><div class="shopping-option-head"><div class="photo-option-copy">${productPhoto(item.selected,item.product.need_key,true)}<div><b>${label}</b><br><small>${esc(item.selected.product_name||item.product.name)}</small>${item.selected.online_price_reference?'<br><span class="online-badge">🌐 מחיר אונליין · הסניף לא אומת</span>':""}</div></div><strong>${formatMoney(singlePackagePrice(item.selected))}</strong></div>${isMultiBuy(item.selected)?`<div class="basket-promo-terms">🏷️ ${esc(promotionSummary(item.selected))}</div>`:""}${basketPurchaseButtons(item.selected,item.product.id,"preferred",busy)}</div>`;
+    const alternative=item.alternative?`<div class="shopping-option alternative"><div class="shopping-option-head"><div class="photo-option-copy">${productPhoto(item.alternative,item.product.need_key,true)}<div><b>💡 חלופה זולה: ${esc(item.alternative.brand)}</b><br><small>חיסכון של ${formatMoney(singlePackagePrice(item.selected)-singlePackagePrice(item.alternative))} לאריזה אחת</small>${item.alternative.online_price_reference?'<br><span class="online-badge">🌐 מחיר אונליין · הסניף לא אומת</span>':""}</div></div><strong>${formatMoney(singlePackagePrice(item.alternative))}</strong></div>${isMultiBuy(item.alternative)?`<div class="basket-promo-terms">🏷️ ${esc(promotionSummary(item.alternative))}</div>`:""}${basketPurchaseButtons(item.alternative,item.product.id,"alternative",busy)}</div>`:"";
     return `<article class="catalog-card shopping-item"><div class="ph"><div><h3>${esc(item.product.name)}</h3>${description?`<div class="meta">${esc(description)}</div>`:""}</div>${badge}</div>${preferred}${alternative}</article>`
   }).join("")
 }
-async function markBasketPurchased(productId,choice,suggestionIndex=null){
+async function markBasketPurchased(productId,choice,suggestionIndex=null,purchaseMode="single"){
   const basket=activeShoppingBasket;if(!basket||purchasedShoppingItems.has(productId)||pendingShoppingPurchases.has(productId))return;
   const item=basket.chosen.find(row=>row.product.id===productId);if(!item)return;
   const suggestion=choice==="suggestion"?item.suggestions[Number(suggestionIndex)]:null;
-  const quote=suggestion?suggestion.row:choice==="alternative"&&item.product.need_key!=="formula"?item.alternative:item.selected;
-  if(!quote)return;
+  const rawQuote=suggestion?suggestion.row:choice==="alternative"&&item.product.need_key!=="formula"?item.alternative:item.selected;
+  if(!rawQuote)return;
+  const quote=normalizePriceRowPromotion(rawQuote);
+  const plan=purchasePlanForQuote(quote,purchaseMode);
+  if(!plan.valid)return alert(`כדי לנצל את המבצע צריך לקנות לפחות ${plan.terms.promo_min_quantity} אריזות.`);
   const purchaseBranch=suggestion?.branch||basket.branch;
   pendingShoppingPurchases.add(productId);renderBasketDetails();
-  const reference=Number(item.selected?.effective_price||quote.regular_price||quote.effective_price);
-  const savings=Math.max(0,reference-Number(quote.effective_price));
-  const notes=choice==="alternative"?`חלופה: ${quote.brand}`:suggestion?`השלמה בסניף אחר: ${quote.brand}`:item.status==="replaced"?`הוחלף יצרן: ${quote.brand}`:null;
-  const {error:eventError}=await sb.from("purchase_events").insert({household_id:household.id,product_id:productId,chain_name:CHAIN_LABELS[purchaseBranch.chain_id]||purchaseBranch.chain_id,branch_name:purchaseBranch.branch_name||null,paid_price:Number(quote.effective_price),package_count:1,reference_price:reference,calculated_savings:savings,notes});
+  const selectedReference=item.selected?singlePackagePrice(item.selected):plan.reference_unit;
+  const reference=choice==="preferred"?plan.reference_unit:selectedReference;
+  const savings=Math.max(0,(reference-plan.unit_price)*plan.count);
+  const noteParts=[];
+  if(choice==="alternative")noteParts.push(`חלופה: ${quote.brand}`);
+  else if(suggestion)noteParts.push(`השלמה בסניף אחר: ${quote.brand}`);
+  else if(item.status==="replaced")noteParts.push(`הוחלף יצרן: ${quote.brand}`);
+  if(purchaseMode==="promotion"&&isMultiBuy(quote))noteParts.push(`מבצע כמות: ${promotionSummary(quote)}`);
+  const notes=noteParts.join(" · ")||null;
+  const {error:eventError}=await sb.from("purchase_events").insert({household_id:household.id,product_id:productId,chain_name:CHAIN_LABELS[purchaseBranch.chain_id]||purchaseBranch.chain_id,branch_name:purchaseBranch.branch_name||null,paid_price:Number(plan.unit_price.toFixed(4)),package_count:plan.count,reference_price:reference,calculated_savings:savings,notes});
   if(eventError){pendingShoppingPurchases.delete(productId);renderBasketDetails();alert("לא הצלחתי לשמור את הקנייה: "+eventError.message);return}
-  const {error:inventoryError}=await sb.rpc("change_product_inventory",{p_product_id:productId,p_delta:1,p_change_kind:"purchase"});
+  const {error:inventoryError}=await sb.rpc("change_product_inventory",{p_product_id:productId,p_delta:plan.count,p_change_kind:"purchase"});
   if(inventoryError){pendingShoppingPurchases.delete(productId);renderBasketDetails();alert("הקנייה נשמרה, אבל עדכון המלאי נכשל: "+inventoryError.message);return}
   const {error:statusError}=await sb.from("products").update({stock_status:"ok",updated_by:session.user.id}).eq("id",productId);
   if(statusError){pendingShoppingPurchases.delete(productId);renderBasketDetails();alert("המלאי גדל, אבל עדכון הסטטוס נכשל: "+statusError.message);return}
-  purchasedShoppingItems.set(productId,{brand:quote.brand,price:Number(quote.effective_price),choice});pendingShoppingPurchases.delete(productId);
+  purchasedShoppingItems.set(productId,{brand:quote.brand,price:plan.unit_price,total:plan.total,count:plan.count,choice,purchaseMode});pendingShoppingPurchases.delete(productId);
   await loadAll();renderBasketDetails();
 }
 async function openProductPrices(id){
@@ -2241,16 +2348,16 @@ async function openProductPrices(id){
   if(!lastCompare){$("preferredPrices").innerHTML='<div class="empty">לא הצלחנו לטעון מחירים למוצר.</div>';return}
   const preferredCatalog=catalog.find(row=>String(row.barcode)===String(product.preferred_barcode||""));
   const preferredBrand=preferredCatalog?.brand||lastCompare.preferred_best?.brand||null;
-  const rows=[...(lastCompare.results||[])].sort((a,b)=>a.effective_price-b.effective_price);
+  const rows=[...(lastCompare.results||[])].map(normalizePriceRowPromotion).sort((a,b)=>singlePackagePrice(a)-singlePackagePrice(b)||a.effective_price-b.effective_price);
   const preferred=preferredBrand?rows.filter(row=>row.brand===preferredBrand):rows;
   const alternatives=preferredBrand?rows.filter(row=>row.brand!==preferredBrand):[];
   $("preferredPricesHeading").textContent=preferredBrand?"⭐ היצרן המועדף":"✨ כל המותגים";
   $("preferredPricesDescription").textContent=preferredBrand?"מהמחיר הנמוך לגבוה":"ברירת המחדל: כל היצרנים, מהמחיר הנמוך לגבוה";
   $("alternativePricesHeading").textContent=preferredBrand?"🔄 יצרנים אחרים":"🔄 חלופות";
-  const rowHtml=(row,index)=>`<article class="catalog-card"><div class="ph"><div class="product-identity">${productPhoto(row,product.need_key,true)}<div><h3>${index===0?"🏆 ":""}${esc(row.chain)}</h3><div class="brand-line">${esc(row.brand)} · ${esc(row.product_name||product.name)}</div><div class="meta">${esc(row.branch||"")}${Number.isFinite(row.distance_km)?` · ${row.distance_km.toFixed(1)} ק״מ`:""}${row.is_online&&row.nearby_branch_name?` · סניף קרוב: ${esc(row.nearby_branch_name)}${Number.isFinite(row.nearby_distance_km)?` · ${row.nearby_distance_km.toFixed(1)} ק״מ`:""}`:""}</div>${row.is_online?'<span class="online-badge">🌐 מחיר אונליין · מחיר ומלאי בסניף לא אומתו</span>':""}</div></div><b style="font-size:1.05rem;color:var(--ok)">${formatMoney(row.effective_price)}</b></div><div class="catalog-tags">${Number.isFinite(row.score)?`<span class="catalog-tag">${Number(row.score).toFixed(2)} ₪ ${esc(row.normalized_unit_label||"")}</span>`:""}${row.promo_description?`<span class="catalog-tag">🏷️ ${esc(row.promo_description)}</span>`:""}</div></article>`;
+  const rowHtml=(row,index)=>`<article class="catalog-card"><div class="ph"><div class="product-identity">${productPhoto(row,product.need_key,true)}<div><h3>${index===0?"🏆 ":""}${esc(row.chain)}</h3><div class="brand-line">${esc(row.brand)} · ${esc(row.product_name||product.name)}</div><div class="meta">${esc(row.branch||"")}${Number.isFinite(row.distance_km)?` · ${row.distance_km.toFixed(1)} ק״מ`:""}${row.is_online&&row.nearby_branch_name?` · סניף קרוב: ${esc(row.nearby_branch_name)}${Number.isFinite(row.nearby_distance_km)?` · ${row.nearby_distance_km.toFixed(1)} ק״מ`:""}`:""}</div>${row.is_online?'<span class="online-badge">🌐 מחיר אונליין · מחיר ומלאי בסניף לא אומתו</span>':""}</div></div><b style="font-size:1.05rem;color:var(--ok)">${isMultiBuy(row)?esc(promotionSummary(row)):formatMoney(row.effective_price)}</b></div><div class="catalog-tags">${Number.isFinite(row.score)?`<span class="catalog-tag">${Number(row.score).toFixed(2)} ₪ ${esc(row.normalized_unit_label||"")}</span>`:""}${row.is_promotion?`<span class="catalog-tag">🏷️ ${esc(promotionSummary(row))}</span>`:""}</div></article>`;
   $("preferredPrices").innerHTML=preferred.length?preferred.map(rowHtml).join(""):`<div class="empty">${preferredBrand?"לא נמצאו כרגע מחירים ליצרן המועדף באזור שלך.":"לא נמצאו כרגע מחירים באזור שלך."}</div>`;
   $("alternativePrices").innerHTML=alternatives.length?alternatives.map(rowHtml).join(""):`<div class="empty">${preferredBrand?"לא נמצאו כרגע יצרנים חלופיים באזור שלך.":"לא נבחר יצרן מועדף, לכן כל המותגים כבר מוצגים ברשימה הראשית."}</div>`;
-  if(preferred.length&&alternatives.length&&alternatives[0].effective_price<preferred[0].effective_price){const savings=preferred[0].effective_price-alternatives[0].effective_price;$("pricesNotice").innerHTML=`<div class="msg" style="margin-top:12px"><b>💡 כדאי לשים לב:</b> ${esc(alternatives[0].brand)} זול יותר ב־${formatMoney(savings)} מהמוצר של ${esc(preferredBrand||preferred[0].brand)}.</div>`}
+  if(preferred.length&&alternatives.length&&singlePackagePrice(alternatives[0])<singlePackagePrice(preferred[0])){const savings=singlePackagePrice(preferred[0])-singlePackagePrice(alternatives[0]);$("pricesNotice").innerHTML=`<div class="msg" style="margin-top:12px"><b>💡 כדאי לשים לב:</b> ${esc(alternatives[0].brand)} זול יותר ב־${formatMoney(savings)} לאריזה אחת מהמוצר של ${esc(preferredBrand||preferred[0].brand)}.</div>`}
 }
 function renderComparison(){
   const data=lastCompare;if(!data)return;
@@ -2278,7 +2385,7 @@ function renderComparison(){
 
   if(data.preferred_barcode){
     if(data.preferred_best){
-      summary+=`<div class="pref-box"><b>⭐ המוצר המועדף נמצא:</b> ${esc(data.preferred_best.brand)} · ${formatMoney(data.preferred_best.effective_price)} ב־${esc(data.preferred_best.chain)}.</div>`;
+      summary+=`<div class="pref-box"><b>⭐ המוצר המועדף נמצא:</b> ${esc(data.preferred_best.brand)} · ${isMultiBuy(data.preferred_best)?esc(promotionSummary(data.preferred_best)):formatMoney(data.preferred_best.effective_price)} ב־${esc(data.preferred_best.chain)}.</div>`;
       if(data.savings_vs_preferred && data.alternative_best){
         summary+=`<div class="msg"><b>💡 קיימת חלופה זולה יותר:</b> ${esc(data.alternative_best.brand)} ב־${esc(data.alternative_best.chain)} · זולה בכ־${Number(data.savings_vs_preferred).toFixed(3)} ${scoreLabel(mode)}.</div>`;
       }
@@ -2310,9 +2417,9 @@ function renderComparison(){
         </div>
         </div>
         <div style="text-align:left">
-          <div class="price">${formatMoney(r.effective_price)}</div>
+          <div class="price">${isMultiBuy(r)?`${esc(promotionTerms(r).promo_min_quantity)} ב־${formatMoney(promotionTerms(r).promo_total_price)}`:formatMoney(r.effective_price)}</div>
           ${r.is_promotion&&Number.isFinite(r.regular_price)?`<div class="old-price">${formatMoney(r.regular_price)}</div>`:""}
-          <div class="unit-price">${Number(r.score).toFixed(3)} ${esc(r.normalized_unit_label||scoreLabel(mode))}</div>
+          <div class="unit-price">${isMultiBuy(r)?`${formatMoney(r.effective_price)} לאריזה · `:""}${Number(r.score).toFixed(3)} ${esc(r.normalized_unit_label||scoreLabel(mode))}</div>
         </div>
       </div>
       ${r.is_promotion?`<div class="promo-terms"><b>${esc(r.promo_description||"מחיר מבצע")}</b>${r.promo_min_quantity>1?` · מינימום ${esc(r.promo_min_quantity)} אריזות`:""}${Number.isFinite(r.promo_total_price)&&r.promo_min_quantity>1?` · סה״כ ${formatMoney(r.promo_total_price)}`:""}${r.requires_club?" · לחברי מועדון":""}${r.promo_end_at?` · עד ${new Date(r.promo_end_at).toLocaleDateString("he-IL")}`:""}</div>`:""}
@@ -2325,31 +2432,66 @@ function renderComparison(){
 }
 function startPurchase(i){
   if(!lastCompare?.results?.[i])return;
-  selectedQuote={index:i,quote:lastCompare.results[i]};
+  selectedQuote={index:i,quote:normalizePriceRowPromotion(lastCompare.results[i]),purchaseMode:"single"};
   const r=selectedQuote.quote;
   $("purchaseitem").textContent=`${r.brand}${r.product_name?" · "+r.product_name:""} | ${r.chain} · ${r.branch}`;
-  $("paidprice").value=Number(r.effective_price).toFixed(2);$("packcount").value="1";$("purchasenote").value="";
+  $("purchasenote").value="";
+  if(isMultiBuy(r)){
+    $("purchasepromo").classList.remove("hidden");
+    $("purchasepromotitle").textContent="🏷️ מבצע כמות זמין";
+    $("purchasepromoterms").textContent=promotionSummary(r)+". אפשר לקנות אריזה אחת במחיר הרגיל או לבחור במבצע.";
+    setPurchaseMode("promotion")
+  }else{
+    $("purchasepromo").classList.add("hidden");
+    selectedQuote.purchaseMode="single";
+    const plan=purchasePlanForQuote(r,"single");
+    $("paidprice").value=Number(plan.unit_price).toFixed(2);$("packcount").value=String(plan.count)
+  }
   updateSavingsPreview();$("purchasebox").classList.remove("hidden");$("purchasebox").scrollIntoView({behavior:"smooth",block:"center"})
+}
+function setPurchaseMode(mode){
+  if(!selectedQuote)return;
+  const r=selectedQuote.quote,multi=isMultiBuy(r);
+  selectedQuote.purchaseMode=mode==="promotion"&&multi?"promotion":"single";
+  const plan=purchasePlanForQuote(r,selectedQuote.purchaseMode);
+  $("packcount").value=String(plan.count);$("paidprice").value=Number(plan.unit_price).toFixed(2);
+  $("purchasesingle").classList.toggle("active",selectedQuote.purchaseMode==="single");
+  $("purchasebundle").classList.toggle("active",selectedQuote.purchaseMode==="promotion");
+  updateSavingsPreview()
 }
 function updateSavingsPreview(){
   if(!selectedQuote||!lastCompare)return;
-  const price=Number($("paidprice").value||0),count=Math.max(1,Number($("packcount").value||1));
+  let price=Number($("paidprice").value||0),count=Math.max(1,Math.round(Number($("packcount").value||1)));
+  if(selectedQuote.purchaseMode==="promotion"&&isMultiBuy(selectedQuote.quote)){
+    const plan=purchasePlanForQuote(selectedQuote.quote,"promotion",count);
+    if(!plan.valid){$("savingpreview").innerHTML=`כדי לנצל את המבצע צריך לקנות לפחות <b>${plan.terms.promo_min_quantity} אריזות</b>.`;return}
+    price=plan.unit_price;$("paidprice").value=Number(price).toFixed(2);
+    $("savingpreview").innerHTML=`סה״כ לתשלום: <b>${formatMoney(plan.total)}</b> עבור ${plan.count} אריזות · חיסכון מהמבצע: <span class="saving">${formatMoney(plan.savings)}</span>`;return
+  }
   const second=lastCompare.results.find((_,i)=>i!==selectedQuote.index);
-  const ref=second?normalizedReference(second.score,selectedQuote.quote,lastCompare.comparison_mode):null;
+  const terms=promotionTerms(selectedQuote.quote),manualBundle=isMultiBuy(selectedQuote.quote)&&count>=terms.promo_min_quantity;
+  const ref=manualBundle?terms.regular_price:(second?normalizedReference(second.score,selectedQuote.quote,lastCompare.comparison_mode):null);
   const savings=ref==null?null:Math.max(0,(ref-price)*count);
-  $("savingpreview").innerHTML=ref==null?"אין מספיק נתונים לחישוב חיסכון מול האפשרות הבאה.":`מחיר השוואה מנורמל: <b>${formatMoney(ref)}</b> לאריזה · חיסכון משוער: <span class="saving">${formatMoney(savings)}</span>`;
+  $("savingpreview").innerHTML=(ref==null?`סה״כ לתשלום: <b>${formatMoney(price*count)}</b>. אין מספיק נתונים לחישוב חיסכון מול האפשרות הבאה.`:`סה״כ לתשלום: <b>${formatMoney(price*count)}</b> · מחיר השוואה מנורמל: <b>${formatMoney(ref)}</b> לאריזה · חיסכון משוער: <span class="saving">${formatMoney(savings)}</span>`);
 }
 async function savePurchase(){
   if(!selectedQuote||!currentNeed)return;
-  const r=selectedQuote.quote,price=Number($("paidprice").value),count=Math.max(1,Number($("packcount").value||1));
-  if(!Number.isFinite(price)||price<0)return alert("הכנס מחיר תקין.");
+  const r=selectedQuote.quote,enteredPrice=Number($("paidprice").value),count=Math.max(1,Math.round(Number($("packcount").value||1)));
+  if(!Number.isFinite(enteredPrice)||enteredPrice<0)return alert("הכנס מחיר תקין.");
+  const promotionPlan=selectedQuote.purchaseMode==="promotion"&&isMultiBuy(r)?purchasePlanForQuote(r,"promotion",count):null;
+  if(promotionPlan&&!promotionPlan.valid)return alert(`כדי לנצל את המבצע צריך לקנות לפחות ${promotionPlan.terms.promo_min_quantity} אריזות.`);
+  const price=promotionPlan?promotionPlan.unit_price:enteredPrice;
+  const paidTotal=promotionPlan?promotionPlan.total:price*count;
   const second=lastCompare.results.find((_,i)=>i!==selectedQuote.index);
-  const ref=second?normalizedReference(second.score,r,lastCompare.comparison_mode):null;
-  const savings=ref==null?null:Math.max(0,(ref-price)*count);
+  const bundleQuantitySatisfied=!!promotionPlan;
+  const ref=bundleQuantitySatisfied?promotionTerms(r).regular_price:(second?normalizedReference(second.score,r,lastCompare.comparison_mode):null);
+  const savings=ref==null?null:Math.max(0,ref*count-paidTotal);
+  const noteParts=[$("purchasenote").value.trim()];
+  if(bundleQuantitySatisfied)noteParts.push(`מבצע כמות: ${promotionSummary(r)}`);
   const {error}=await sb.from("purchase_events").insert({
     household_id:household.id,product_id:currentNeed.id,alternative_id:r.alternative_id||null,
-    chain_name:r.chain,branch_name:r.branch,paid_price:price,package_count:count,
-    reference_price:ref,calculated_savings:savings,notes:$("purchasenote").value.trim()||null
+    chain_name:r.chain,branch_name:r.branch,paid_price:Number(price.toFixed(4)),package_count:count,
+    reference_price:ref,calculated_savings:savings,notes:noteParts.filter(Boolean).join(" · ")||null
   });
   if(error)return alert("לא הצלחתי לשמור את הקנייה: "+error.message);
 
@@ -2363,7 +2505,7 @@ async function savePurchase(){
     return loadAll();
   }
 
-  $("purchasebox").innerHTML=`<div class="msg">✅ הקנייה נשמרה והמלאי גדל ב־<b>${count} ${esc(defaultInventoryUnit(currentNeed))}</b>${savings!=null?` · חיסכון משוער <b>${formatMoney(savings)}</b>`:""}.</div>`;
+  $("purchasebox").innerHTML=`<div class="msg">✅ הקנייה נשמרה: סה״כ ${formatMoney(paidTotal)}. המלאי גדל ב־<b>${count} ${esc(defaultInventoryUnit(currentNeed))}</b>${savings!=null?` · חיסכון משוער <b>${formatMoney(savings)}</b>`:""}.</div>`;
   await loadAll()
 }
 async function sendFeedback(helpful){
@@ -2419,7 +2561,7 @@ if(bottomNav)bottomNav.onclick=e=>{
 };
 $("basketResults").onclick=e=>{const button=e.target.closest("[data-open-basket]");if(button)return openBasketDetails(button.dataset.openBasket)};
 $("backToBaskets").onclick=()=>appPage("shoppingBasketPage");
-$("shoppingItems").onclick=e=>{const button=e.target.closest("[data-basket-buy]");if(button)return markBasketPurchased(button.dataset.basketBuy,button.dataset.basketChoice,button.dataset.basketSuggestion)};
+$("shoppingItems").onclick=e=>{const button=e.target.closest("[data-basket-buy]");if(button)return markBasketPurchased(button.dataset.basketBuy,button.dataset.basketChoice,button.dataset.basketSuggestion,button.dataset.basketMode||"single")};
 $("manageInventory").onclick=openInventoryManager;$("imclose").onclick=()=>$("imdlg").close();$("imcancel").onclick=()=>$("imdlg").close();$("imsave").onclick=saveInventoryManager;
 $("inventoryManager").onchange=e=>{
   const category=e.target.matches("[data-manage-category]")&&!e.target.matches("[data-manage-need]")?e.target:null;
@@ -2557,7 +2699,10 @@ $("location").onclick=openLocation;$("lclose").onclick=()=>$("ldlg").close();$("
 $("cityloc").onclick=locateCityCenter;
 $("gps").onclick=()=>{if(!navigator.geolocation)return msg("lmsg","המכשיר לא תומך במיקום.",true);$("gpsstate").textContent="מבקש מיקום…";navigator.geolocation.getCurrentPosition(p=>{pendingGps={lat:p.coords.latitude,lon:p.coords.longitude};$("gpsstate").textContent=`GPS נקלט: ${pendingGps.lat.toFixed(4)}, ${pendingGps.lon.toFixed(4)}`},e=>msg("lmsg","לא התקבל מיקום: "+e.message,true),{enableHighAccuracy:true,timeout:10000})};
 $("cclose").onclick=()=>$("cdlg").close();$("cbody").onclick=e=>{let b=e.target.closest("[data-buyidx]");if(b)startPurchase(Number(b.dataset.buyidx))};
-$("cancelpurchase").onclick=()=>$("purchasebox").classList.add("hidden");$("paidprice").oninput=updateSavingsPreview;$("packcount").oninput=updateSavingsPreview;$("savepurchase").onclick=savePurchase;
+$("cancelpurchase").onclick=()=>$("purchasebox").classList.add("hidden");
+$("purchasesingle").onclick=()=>setPurchaseMode("single");$("purchasebundle").onclick=()=>setPurchaseMode("promotion");
+$("paidprice").oninput=()=>{if(selectedQuote?.purchaseMode==="promotion"){selectedQuote.purchaseMode="manual";$("purchasesingle").classList.remove("active");$("purchasebundle").classList.remove("active")}updateSavingsPreview()};
+$("packcount").oninput=updateSavingsPreview;$("savepurchase").onclick=savePurchase;
 $("feedbackbox").onclick=e=>{let b=e.target.closest("[data-helpful]");if(b)sendFeedback(b.dataset.helpful==="true")};
 window.addEventListener("hashchange",()=>{if(location.hash==="#notifications"&&session&&household)openNotifications()});
 boot();
