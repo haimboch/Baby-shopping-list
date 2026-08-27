@@ -22,6 +22,7 @@ from .enrichment import MetadataEnricher
 from .ksp import collect_ksp_official
 from .superpharm_online import collect_superpharm_online
 from .cheapersal_prices import CheaperSalPriceClient, CheaperSalPriceFallback
+from .cheapersal_bulk import SuperPharmBulkImporter
 from .product_types import PRODUCT_TYPES
 from .product_images import (
     ProductImageEnricher,
@@ -270,7 +271,7 @@ def to_db_price(row: dict[str, Any]) -> dict[str, Any]:
 
 def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
     chain_id = resolved_chain(row["source_name"], row.get("subchain_id"), row.get("branch_name"))
-    return {
+    result = {
         "chain_id": chain_id,
         "branch_code": str(row["branch_code"]),
         "branch_name": row.get("branch_name"),
@@ -279,6 +280,16 @@ def to_db_branch(row: dict[str, Any]) -> dict[str, Any]:
         "active": True,
         "last_seen_at": utcnow(),
     }
+    # Never send empty coordinates: the existing supermarket geocoding must
+    # survive subsequent store-feed refreshes that omit location metadata.
+    try:
+        latitude = float(row.get("latitude"))
+        longitude = float(row.get("longitude"))
+    except (TypeError, ValueError):
+        return result
+    if 29.0 <= latitude <= 34.0 and 34.0 <= longitude <= 36.5:
+        result.update({"latitude": latitude, "longitude": longitude})
+    return result
 
 
 _CATALOG_NEEDS = PRODUCT_TYPES
@@ -565,12 +576,57 @@ def _special_batch_with_lookup_result(
         )
     return result
 
+
+def _special_batch_with_bulk_result(
+    batch: dict[str, Any] | None,
+    bulk_stats: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """A successful bulk page replaces dozens of per-barcode bootstrap calls."""
+    result = dict(batch or {})
+    stats = bulk_stats or {}
+    if int(stats.get("baby_prices") or 0) <= 0:
+        return result
+    expected = max(0, int(result.get("batch_size") or 0))
+    result.update({
+        "lookup_attempted": int(stats.get("network_requests") or 0),
+        "lookup_resolved": expected,
+        "provider_complete": True,
+        "committed": True,
+        "bulk_catalog_import": True,
+        "cycles_completed": max(1, int(result.get("cycles_completed") or 0)),
+    })
+    return result
+
+
+def _latest_super_pharm_bulk_state(db: SupabaseREST) -> dict[str, Any]:
+    """Resume paginated categories and avoid refreshing branch locations hourly."""
+    try:
+        rows = db.select(
+            "feed_ingestion_runs",
+            {
+                "select": "details",
+                "chain_id": "eq.super_pharm",
+                "status": "neq.running",
+                "order": "started_at.desc",
+                "limit": "12",
+            },
+        )
+    except Exception:
+        return {}
+    for row in rows:
+        details = row.get("details") if isinstance(row.get("details"), dict) else {}
+        state = details.get("super_pharm_bulk")
+        if isinstance(state, dict) and state.get("version") == "v050":
+            return state
+    return {}
+
+
 def build_target_branch_plan(db: SupabaseREST | None) -> dict[str, Any]:
     empty = {
         "cities": [], "locality_codes": {}, "targets": {},
         "known_branch_counts": {}, "ksp_catalog_targets": [],
         "special_catalog_targets": [], "special_retailer_batch": {},
-        "ksp_known_items": [], "diagnostics": [],
+        "ksp_known_items": [], "super_pharm_bulk_state": {}, "diagnostics": [],
     }
     if db is None:
         return empty
@@ -648,6 +704,7 @@ def build_target_branch_plan(db: SupabaseREST | None) -> dict[str, Any]:
         "ksp_catalog_targets": catalog_targets,
         "special_catalog_targets": catalog_targets,
         "special_retailer_batch": special_batch,
+        "super_pharm_bulk_state": _latest_super_pharm_bulk_state(db),
         "ksp_known_items": known_items,
         "diagnostics": diagnostics[:20],
     }
@@ -2784,10 +2841,16 @@ async def collect_source(
         }
         data["ksp_official"] = stats
         data["cheapersal_price_fallback"] = cheaper_stats
-        data["special_retailer_batch"] = _special_batch_with_lookup_result(
-            (target_plan or {}).get("special_retailer_batch"),
-            cheaper_stats,
-        )
+        if (target_plan or {}).get("super_pharm_bulk_succeeded"):
+            data["special_retailer_batch"] = _special_batch_with_bulk_result(
+                (target_plan or {}).get("special_retailer_batch"),
+                (target_plan or {}).get("super_pharm_bulk_stats"),
+            )
+        else:
+            data["special_retailer_batch"] = _special_batch_with_lookup_result(
+                (target_plan or {}).get("special_retailer_batch"),
+                cheaper_stats,
+            )
         return data
 
     if scraper_name == "SUPER_PHARM":
@@ -2818,37 +2881,80 @@ async def collect_source(
             os.environ.get("SUPER_PHARM_INDEX_MAX_PAGES", "120")
         )
 
-        passes, stats = _collect_superpharm_official(
-            full_limit=full_limit,
-            incremental_limit=incremental_limit,
-            promo_full_limit=promo_full_limit,
-            promo_incremental_limit=promo_incremental_limit,
-            max_pages=max_pages,
+        api_key = os.environ.get("CHEAPERSAL_API_KEY", "")
+        shared_client = price_lookup_client or CheaperSalPriceClient(
+            api_key,
+            limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "13")),
+            online=False,
+            minimum_interval=float(os.environ.get("CHEAPERSAL_MIN_INTERVAL_SECONDS", "7")),
+            max_rate_retries=int(os.environ.get("CHEAPERSAL_MAX_RATE_RETRIES", "1")),
         )
-        data = _merge_source_passes(scraper_name, file_limit, passes)
+        passes: list[dict[str, Any]] = []
+        bulk_pass, bulk_stats = SuperPharmBulkImporter(
+            shared_client,
+            state=(target_plan or {}).get("super_pharm_bulk_state"),
+        ).collect()
+        if bulk_pass["files_seen"] or bulk_pass["store_rows"] or bulk_pass["errors"]:
+            passes.append(bulk_pass)
 
+        direct_enabled = (
+            os.environ.get("SUPER_PHARM_DIRECT_ENABLED", "false").lower() == "true"
+            or not shared_client.api_key
+        )
+        stats: dict[str, Any] = {
+            "source": SP_BASE_URL,
+            "skipped": not direct_enabled,
+            "reason": "authorized CheaperSal bulk API is preferred; direct retailer access is blocked",
+        }
         online_stats: dict[str, Any] = {
             "fallback_used": False,
-            "reason": "transparency feed contained baby price rows",
+            "reason": "authorized CheaperSal online branch is preferred",
         }
-        if not data["price_rows"]:
-            online_pass, online_stats = collect_superpharm_online(
-                max_items=int(os.environ.get("SUPER_PHARM_ONLINE_MAX_ITEMS", "90")),
-                category_pages=int(os.environ.get("SUPER_PHARM_ONLINE_CATEGORY_PAGES", "2")),
+        if direct_enabled:
+            direct_passes, stats = _collect_superpharm_official(
+                full_limit=full_limit,
+                incremental_limit=incremental_limit,
+                promo_full_limit=promo_full_limit,
+                promo_incremental_limit=promo_incremental_limit,
+                max_pages=max_pages,
             )
-            passes.append(online_pass)
-            data = _merge_source_passes(scraper_name, file_limit, passes)
-        cheaper = CheaperSalPriceFallback(
-            os.environ.get("CHEAPERSAL_API_KEY", ""),
-            limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
-            online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "true").lower() != "false",
-            client=price_lookup_client,
-        )
-        cheaper_pass, cheaper_stats = cheaper.collect(
-            "SUPER_PHARM",
-            list((target_plan or {}).get("special_catalog_targets", [])),
-        )
-        passes.append(cheaper_pass)
+            passes.extend(direct_passes)
+            if not any(source_pass["price_rows"] for source_pass in passes):
+                online_pass, online_stats = collect_superpharm_online(
+                    max_items=int(os.environ.get("SUPER_PHARM_ONLINE_MAX_ITEMS", "90")),
+                    category_pages=int(os.environ.get("SUPER_PHARM_ONLINE_CATEGORY_PAGES", "2")),
+                )
+                passes.append(online_pass)
+
+        bulk_succeeded = bool(bulk_pass["price_rows"])
+        if bulk_succeeded:
+            cheaper_stats = {
+                "fallback_used": False,
+                "reason": "bulk endpoint returned up to 200 products per request",
+                "attempted": 0,
+                "matched_prices": 0,
+                "baby_prices": 0,
+                "network_requests": 0,
+                "remaining_budget": shared_client.remaining,
+                "shared_cache_entries": len(shared_client.cache),
+                "errors": [],
+            }
+            if target_plan is not None:
+                target_plan["super_pharm_bulk_succeeded"] = True
+                target_plan["super_pharm_bulk_stats"] = bulk_stats
+        else:
+            cheaper = CheaperSalPriceFallback(
+                api_key,
+                limit=int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "13")),
+                online=os.environ.get("CHEAPERSAL_ONLINE_ONLY", "true").lower() != "false",
+                client=shared_client,
+            )
+            cheaper_pass, cheaper_stats = cheaper.collect(
+                "SUPER_PHARM",
+                list((target_plan or {}).get("special_catalog_targets", [])),
+            )
+            passes.append(cheaper_pass)
+
         data = _merge_source_passes(scraper_name, file_limit, passes)
         data["scrape_file_limit"] = {
             "stores": 1,
@@ -2859,16 +2965,37 @@ async def collect_source(
             "index_max_pages": max_pages,
             "online_max_items": int(os.environ.get("SUPER_PHARM_ONLINE_MAX_ITEMS", "90")),
             "online_category_pages": int(os.environ.get("SUPER_PHARM_ONLINE_CATEGORY_PAGES", "2")),
-            "cheapersal_price_lookups": int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "18")),
+            "cheapersal_price_lookups": int(os.environ.get("CHEAPERSAL_PRICE_LOOKUP_LIMIT", "13")),
+            "cheapersal_bulk_requests": int(os.environ.get("CHEAPERSAL_BULK_REQUEST_LIMIT", "10")),
         }
         data["super_pharm_bootstrap"] = stats
         data["super_pharm_online_fallback"] = online_stats
+        data["super_pharm_bulk"] = bulk_stats
         data["cheapersal_price_fallback"] = cheaper_stats
-        data["special_retailer_batch"] = _special_batch_with_lookup_result(
-            (target_plan or {}).get("special_retailer_batch"),
-            cheaper_stats,
-            allow_commit=False,
+        data["special_retailer_batch"] = (
+            _special_batch_with_bulk_result(
+                (target_plan or {}).get("special_retailer_batch"), bulk_stats
+            )
+            if bulk_succeeded else _special_batch_with_lookup_result(
+                (target_plan or {}).get("special_retailer_batch"),
+                cheaper_stats,
+                allow_commit=False,
+            )
         )
+        print(
+            "🛍️ SUPER_PHARM_BULK: "
+            f"{bulk_stats['baby_prices']} online baby products, "
+            f"{bulk_stats['branches_saved']} branches, "
+            f"{bulk_stats['branches_geocoded_this_run']} branches with coordinates, "
+            f"{bulk_stats['active_promotions']} promotions, "
+            f"{bulk_stats['network_requests']} authorized API requests"
+        )
+        if bulk_stats.get("quota_error_code"):
+            print(
+                "::warning title=CheaperSal quota::"
+                f"{bulk_stats['quota_error_code']}; "
+                f"next daily reset: {bulk_stats.get('quota_reset_at') or 'provider-defined'}"
+            )
         return data
 
     if scraper_name == "YOHANANOF":
@@ -3333,6 +3460,7 @@ def assess_ingestion_outcome(
             "ksp": data.get("ksp_official"),
             "super_pharm": data.get("super_pharm_bootstrap"),
             "super_pharm_online": data.get("super_pharm_online_fallback"),
+            "super_pharm_bulk": data.get("super_pharm_bulk"),
             "cheapersal_prices": data.get("cheapersal_price_fallback"),
         },
         ensure_ascii=False,
@@ -3415,10 +3543,13 @@ async def run_chain(
             enrichment_stats = enricher.enrich_missing_catalog(prices)
 
         branches = [to_db_branch(x) for x in data["store_rows"]]
-        branch_map = {
-            (b["chain_id"], b["branch_code"]): b
-            for b in branches
-        }
+        branch_map: dict[tuple[str, str], dict[str, Any]] = {}
+        for branch in branches:
+            key = (branch["chain_id"], branch["branch_code"])
+            previous = branch_map.get(key)
+            # A later source without coordinates must never discard a location
+            # supplied by the authorized bulk branch endpoint.
+            branch_map[key] = {**(previous or {}), **branch}
         branches = list(branch_map.values())
 
         # Ensure a branch FK target exists even if a Stores file wasn't present in this run.
@@ -3446,7 +3577,19 @@ async def run_chain(
                 "parse_errors": data["errors"][:5],
             }, ensure_ascii=False, indent=2))
         elif db:
-            db.upsert("retail_branches", branches, "chain_id,branch_code")
+            located = [
+                branch for branch in branches
+                if "latitude" in branch and "longitude" in branch
+            ]
+            unlocated = [
+                branch for branch in branches
+                if "latitude" not in branch or "longitude" not in branch
+            ]
+            # PostgREST requires every object in one bulk request to have the
+            # same keys; separate batches also preserve old geocoding when an
+            # ordinary store feed has no location data.
+            db.upsert("retail_branches", unlocated, "chain_id,branch_code")
+            db.upsert("retail_branches", located, "chain_id,branch_code")
             db.upsert("baby_retail_prices", prices, "chain_id,branch_code,barcode")
             # A discovered branch alone is not a successful price ingestion.
             # Same/older valid price rows still count as source success even if
@@ -3469,6 +3612,7 @@ async def run_chain(
                             "observed_valid_price_rows": observed_price_rows,
                         },
                         "branches_saved": len(branches),
+                        "branches_geocoded": len(located),
                         "promo_rows_seen": len(data["promo_rows"]),
                         "duplicate_price_rows_collapsed": duplicate_price_rows,
                         "stale_rows_skipped": stale_rows_skipped,
@@ -3481,6 +3625,7 @@ async def run_chain(
                         "be_bootstrap": data.get("be_bootstrap"),
                         "super_pharm_bootstrap": data.get("super_pharm_bootstrap"),
                         "super_pharm_online_fallback": data.get("super_pharm_online_fallback"),
+                        "super_pharm_bulk": data.get("super_pharm_bulk"),
                         "ksp_official": data.get("ksp_official"),
                         "cheapersal_price_fallback": data.get("cheapersal_price_fallback"),
                         "special_retailer_batch": data.get("special_retailer_batch"),
@@ -3619,6 +3764,30 @@ async def async_main(args):
     )
     target_plan = build_target_branch_plan(db)
     print("📍 target branch plan: " + json.dumps(target_plan, ensure_ascii=False))
+    bulk_state = target_plan.get("super_pharm_bulk_state") or {}
+    quota_reset = bulk_state.get("quota_reset_at")
+    scheduled = os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+    if (
+        scheduled
+        and bulk_state.get("quota_error_code") == "DAILY_LIMIT_EXCEEDED"
+        and quota_reset
+    ):
+        try:
+            reset_at = datetime.fromisoformat(str(quota_reset).replace("Z", "+00:00"))
+        except ValueError:
+            reset_at = None
+        if reset_at and datetime.now(timezone.utc) < reset_at:
+            before = list(scraper_names)
+            scraper_names = [
+                name for name in scraper_names if name not in {"SUPER_PHARM", "KSP"}
+            ]
+            if len(before) != len(scraper_names):
+                print(
+                    "⏱️ SPECIAL_RETAILER_AUTO: the free CheaperSal daily quota "
+                    f"is exhausted; automatic collection resumes after {quota_reset}."
+                )
+            if not scraper_names:
+                return
     special_batch = target_plan.get("special_retailer_batch") or {}
     if db and not args.dry_run and not special_batch.get("due", True):
         before = list(scraper_names)

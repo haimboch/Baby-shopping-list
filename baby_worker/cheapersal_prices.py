@@ -51,6 +51,39 @@ def _barcode(value: Any) -> str:
     return digits if 8 <= len(digits) <= 14 else ""
 
 
+def _provider_error_code(response: Any) -> str:
+    """Differentiate an exhausted daily quota from a short per-minute burst."""
+    try:
+        payload = response.json()
+    except (TypeError, ValueError, AttributeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    error = payload.get("error")
+    if isinstance(error, dict):
+        return str(error.get("code") or "").strip().upper()
+    return str(payload.get("code") or "").strip().upper()
+
+
+def _branch_coordinates(branch: dict[str, Any]) -> tuple[float | None, float | None]:
+    location = branch.get("location") if isinstance(branch.get("location"), dict) else {}
+    geojson = location.get("coordinates")
+    lat = location.get("lat", location.get("latitude", branch.get("latitude")))
+    lon = location.get(
+        "lon", location.get("lng", location.get("longitude", branch.get("longitude")))
+    )
+    if isinstance(geojson, (list, tuple)) and len(geojson) >= 2:
+        lon = geojson[0] if lon in (None, "") else lon
+        lat = geojson[1] if lat in (None, "") else lat
+    try:
+        latitude, longitude = float(lat), float(lon)
+    except (TypeError, ValueError):
+        return None, None
+    if not (29.0 <= latitude <= 34.0 and 34.0 <= longitude <= 36.5):
+        return None, None
+    return latitude, longitude
+
+
 def _matches_chain(requested: str, price: dict[str, Any]) -> bool:
     chain = price.get("chain") if isinstance(price.get("chain"), dict) else {}
     haystack = " ".join(
@@ -111,11 +144,10 @@ def _row_from_price(
 
     branch = price.get("branch") if isinstance(price.get("branch"), dict) else {}
     is_online = bool(branch.get("isOnline")) or str(price.get("online")).lower() == "true"
-    branch_code = _clean(
-        branch.get("storeId")
-        or branch.get("id")
+    branch_code = "online" if is_online else _clean(
+        branch.get("id")
+        or branch.get("storeId")
         or price.get("branchId")
-        or ("online" if is_online else "")
     )
     if not branch_code:
         branch_code = "online"
@@ -184,11 +216,13 @@ def _row_from_price(
 def _branch_row(requested_chain: str, price: dict[str, Any]) -> dict[str, Any]:
     branch = price.get("branch") if isinstance(price.get("branch"), dict) else {}
     is_online = bool(branch.get("isOnline")) or str(price.get("online")).lower() == "true"
-    branch_code = _clean(branch.get("storeId") or branch.get("id") or price.get("branchId"))
+    branch_code = "online" if is_online else _clean(
+        branch.get("id") or branch.get("storeId") or price.get("branchId")
+    )
     if not branch_code:
         branch_code = "online"
     default_name = "KSP אונליין" if requested_chain == "KSP" else "סופר-פארם אונליין"
-    return {
+    result = {
         "source_name": requested_chain,
         "branch_code": branch_code,
         "subchain_id": None,
@@ -196,6 +230,10 @@ def _branch_row(requested_chain: str, price: dict[str, Any]) -> dict[str, Any]:
         "city": _clean(branch.get("city")) or None,
         "address": _clean(branch.get("address")) or ("אונליין" if is_online else None),
     }
+    latitude, longitude = _branch_coordinates(branch)
+    if not is_online and latitude is not None and longitude is not None:
+        result.update({"latitude": latitude, "longitude": longitude})
+    return result
 
 
 class CheaperSalPriceClient:
@@ -222,11 +260,28 @@ class CheaperSalPriceClient:
         self.cached_error_hits = 0
         self.rate_limit_waits = 0
         self.provider_retries = 0
+        self.provider_remaining: int | None = None
+        self.provider_reserve = max(
+            0, int(os.environ.get("CHEAPERSAL_PROVIDER_REQUEST_RESERVE", "0"))
+        )
+        self.quota_error_code: str | None = None
+        self.api_cache: dict[tuple[str, tuple[tuple[str, str], ...]], Any] = {}
 
     def can_lookup(self, barcode: str) -> bool:
         return bool(
             self.api_key
-            and (barcode in self.cache or barcode in self.failures or self.remaining > 0)
+            and (
+                barcode in self.cache
+                or barcode in self.failures
+                or (
+                    self.remaining > 0
+                    and not self.quota_error_code
+                    and (
+                        self.provider_remaining is None
+                        or self.provider_remaining > self.provider_reserve
+                    )
+                )
+            )
         )
 
     def snapshot(self) -> dict[str, int]:
@@ -238,9 +293,16 @@ class CheaperSalPriceClient:
             "provider_retries": self.provider_retries,
         }
 
-    def _request(self, barcode: str):
+    def _request_path(self, path: str, params: dict[str, Any] | None = None):
         if self.remaining <= 0:
             raise RuntimeError("shared CheaperSal request budget exhausted")
+        if self.quota_error_code:
+            raise RuntimeError(f"CheaperSal provider quota unavailable: {self.quota_error_code}")
+        if (
+            self.provider_remaining is not None
+            and self.provider_remaining <= self.provider_reserve
+        ):
+            raise RuntimeError("CheaperSal provider request reserve reached")
         waited = wait_for_slot("cheapersal", self.minimum_interval)
         if waited > 0:
             self.rate_limit_waits += 1
@@ -250,13 +312,81 @@ class CheaperSalPriceClient:
         self.network_requests += 1
         try:
             return requests.get(
-                f"{API_BASE}/products/{barcode}/prices",
-                params={"online": "true"} if self.online else None,
+                f"{API_BASE}/{path.lstrip('/')}",
+                params=params,
                 headers={"X-API-Key": self.api_key},
                 timeout=35,
             )
         finally:
             record_call("cheapersal")
+
+    def _request(self, barcode: str):
+        return self._request_path(
+            f"products/{barcode}/prices",
+            {"online": "true"} if self.online else None,
+        )
+
+    def _remember_provider_usage(self, payload: dict[str, Any]) -> None:
+        meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+        usage = meta.get("usage") if isinstance(meta.get("usage"), dict) else {}
+        value = usage.get("remaining")
+        if value in (None, ""):
+            return
+        try:
+            self.provider_remaining = max(0, int(value))
+        except (TypeError, ValueError):
+            return
+
+    def _handle_provider_limit(self, response: Any) -> bool:
+        code = _provider_error_code(response)
+        if code in {"DAILY_LIMIT_EXCEEDED", "MONTHLY_LIMIT_EXCEEDED"}:
+            self.quota_error_code = code
+            self.provider_remaining = 0
+            self.remaining = 0
+            return True
+        return False
+
+    def get_json(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | list[Any] | None:
+        """Read another documented CheaperSal endpoint using the shared budget."""
+        if not self.api_key:
+            return None
+        key = (
+            path.strip("/"),
+            tuple(sorted((str(name), str(value)) for name, value in (params or {}).items())),
+        )
+        if key in self.api_cache:
+            self.cache_hits += 1
+            return self.api_cache[key]
+        for attempt in range(self.max_rate_retries + 1):
+            response = self._request_path(path, params)
+            if response.status_code == 429:
+                if self._handle_provider_limit(response):
+                    raise RuntimeError(
+                        f"CheaperSal quota exhausted: {self.quota_error_code}"
+                    )
+                if attempt < self.max_rate_retries and self.remaining > 0:
+                    self.provider_retries += 1
+                    self.rate_limit_waits += 1
+                    time.sleep(retry_after_seconds(response))
+                    continue
+            if response.status_code == 404:
+                self.api_cache[key] = None
+                return None
+            if not response.ok:
+                raise RuntimeError(f"CheaperSal {response.status_code}: {response.text[:400]}")
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise RuntimeError("CheaperSal returned an invalid response envelope")
+            self._remember_provider_usage(payload)
+            if not payload.get("success"):
+                raise RuntimeError(f"CheaperSal rejected the request: {payload.get('error')}")
+            data = payload.get("data")
+            result = data if isinstance(data, (dict, list)) else None
+            self.api_cache[key] = result
+            return result
+        return None
 
     def get_prices(self, barcode: str) -> dict[str, Any] | None:
         if barcode in self.cache:
@@ -271,11 +401,16 @@ class CheaperSalPriceClient:
         try:
             for attempt in range(self.max_rate_retries + 1):
                 response = self._request(barcode)
-                if response.status_code == 429 and attempt < self.max_rate_retries and self.remaining > 0:
-                    self.provider_retries += 1
-                    self.rate_limit_waits += 1
-                    time.sleep(retry_after_seconds(response))
-                    continue
+                if response.status_code == 429:
+                    if self._handle_provider_limit(response):
+                        raise RuntimeError(
+                            f"CheaperSal quota exhausted: {self.quota_error_code}"
+                        )
+                    if attempt < self.max_rate_retries and self.remaining > 0:
+                        self.provider_retries += 1
+                        self.rate_limit_waits += 1
+                        time.sleep(retry_after_seconds(response))
+                        continue
                 if response.status_code == 404:
                     self.cache[barcode] = None
                     return None
@@ -284,6 +419,8 @@ class CheaperSalPriceClient:
                         f"CheaperSal {response.status_code}: {response.text[:400]}"
                     )
                 payload = response.json()
+                if isinstance(payload, dict):
+                    self._remember_provider_usage(payload)
                 data = payload.get("data") if payload.get("success") else None
                 normalized = data if isinstance(data, dict) else None
                 self.cache[barcode] = normalized
