@@ -32,7 +32,8 @@ jobs:
       ENRICHMENT_LIMIT: "0"
       SPECIAL_RETAILER_BATCH_SIZE: "48"
       SPECIAL_RETAILER_MAINTENANCE_HOURS: "4"
-      # 13 calls every four hours + the main flow stay below 100 calls/day.
+      # 13 calls every four hours (78/day); the hourly supermarket flow uses
+      # zero provider calls, so the shared free quota stays below 100/day.
       # One bulk product request returns up to 200 products.
       CHEAPERSAL_PRICE_LOOKUP_LIMIT: "13"
       CHEAPERSAL_BULK_REQUEST_LIMIT: "10"

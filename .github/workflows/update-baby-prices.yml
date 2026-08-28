@@ -2,7 +2,8 @@ name: Update Baby Prices
 
 on:
   schedule:
-    - cron: "17 */4 * * *"
+    # Price and promotion transparency feeds are checked every hour, 24/7.
+    - cron: "17 * * * *"
       timezone: "Asia/Jerusalem"
   workflow_dispatch:
     inputs:
@@ -28,10 +29,11 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       CHEAPERSAL_API_KEY: ${{ secrets.CHEAPERSAL_API_KEY }}
       ENABLED_CHAINS: "shufersal,be,rami_levy,yochananof,osher_ad"
-      # Reserve the shared free CheaperSal quota for the bulk retailer import.
-      ENRICHMENT_LIMIT: "2"
+      # The hourly supermarket refresh uses the official transparency feeds.
+      # Keep the shared free CheaperSal quota for KSP/Super-Pharm batches.
+      ENRICHMENT_LIMIT: "0"
       PRODUCT_IMAGE_LOOKUP_LIMIT: "36"
-      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "1"
+      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "0"
       CHEAPERSAL_MIN_INTERVAL_SECONDS: "7"
       PYTHONUNBUFFERED: "1"
 
