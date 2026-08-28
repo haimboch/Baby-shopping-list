@@ -112,10 +112,12 @@ globalThis.testApi = {
   fetchScopedPriceRows,
   matchingBasketRows,
   parsePromotionBundle,
+  promotionTerms,
   normalizePriceRowPromotion,
   singlePackagePrice,
   promotionSummary,
   purchasePlanForQuote,
+  visibleOfferRows,
   isMultiBuy,
   basketPurchaseButtons,
   isOnlineBranch,
@@ -463,4 +465,48 @@ const baseRows = [
   process.stdout.write("✓ Super-Pharm online estimates are transparent and never claim verified store stock.\n");
 }
 
-process.stdout.write("✓ All v0.47–v0.51 frontend behavior tests passed.\n");
+{
+  const misleadingRestriction = "נוטרילון 800 גרם עד 4 יח מעל 75";
+  assert.equal(api.parsePromotionBundle(misleadingRestriction), null);
+
+  const rejected = api.normalizePriceRowPromotion({
+    regular_price: 63.9,
+    effective_price: 2.5,
+    promo_price: 2.5,
+    promo_total_price: 5,
+    promo_min_quantity: 2,
+    promo_description: misleadingRestriction,
+  });
+  assert.equal(rejected.is_promotion, false);
+  assert.equal(rejected.promo_price, null);
+  assert.equal(rejected.effective_price, 63.9);
+  assert.equal(
+    api.promotionTerms(rejected).validation_reason,
+    "bundle_total_below_single_regular_price",
+  );
+
+  const corrected = api.normalizePriceRowPromotion({
+    regular_price: 63.9,
+    effective_price: 55,
+    promo_price: 55,
+    promo_total_price: 110,
+    promo_min_quantity: 2,
+    promo_description: misleadingRestriction,
+  });
+  assert.equal(api.isMultiBuy(corrected), true);
+  const plan = api.purchasePlanForQuote(corrected, "promotion");
+  assert.equal(plan.count, 2);
+  assert.equal(plan.total, 110);
+  assert.equal(Number(plan.unit_price.toFixed(2)), 55);
+  assert.equal(Number(plan.savings.toFixed(2)), 17.8);
+
+  const offers = Array.from({ length: 7 }, (_, index) => ({ index }));
+  assert.deepEqual(
+    Array.from(api.visibleOfferRows(offers)).map((row) => row.index),
+    [0, 1, 2],
+  );
+  assert.equal(api.visibleOfferRows(offers, true).length, 7);
+  process.stdout.write("✓ Invalid split-number deals are rejected; 2-for-110 savings and top-three offers are exact.\n");
+}
+
+process.stdout.write("✓ All v0.47–v0.52 frontend behavior tests passed.\n");

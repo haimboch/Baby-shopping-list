@@ -381,14 +381,15 @@ def test_v050_successful_bulk_bootstrap_uses_four_hour_maintenance():
 def test_v050_workflows_keep_the_shared_free_api_budget_safe():
     main = (ROOT / ".github/workflows/update-baby-prices.yml").read_text("utf-8")
     special = (ROOT / ".github/workflows/update-special-retailers.yml").read_text("utf-8")
-    assert 'ENRICHMENT_LIMIT: "2"' in main
-    assert 'CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "1"' in main
+    assert 'cron: "17 * * * *"' in main
+    assert 'ENRICHMENT_LIMIT: "0"' in main
+    assert 'CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "0"' in main
     assert 'CHEAPERSAL_PRICE_LOOKUP_LIMIT: "13"' in special
     assert 'CHEAPERSAL_BULK_REQUEST_LIMIT: "10"' in special
     assert 'CHEAPERSAL_PROVIDER_REQUEST_RESERVE: "5"' in special
     assert 'SUPER_PHARM_DIRECT_ENABLED: "false"' in special
     assert 'CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "0"' in special
-    assert 6 * (13 + 2 + 1) <= 100
+    assert 6 * 13 <= 100
 
 
 def test_v050_frontend_marks_online_estimates_without_claiming_store_stock():
