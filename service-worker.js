@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v051-universal-multibuy-promotions";
+const CACHE="baby-smart-v052-trusted-multibuy-top3";
 const SHELL=["./","./index.html","./manifest.webmanifest"];
 
 self.addEventListener("install",event=>{

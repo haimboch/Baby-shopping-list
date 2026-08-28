@@ -63,6 +63,12 @@ from tests.test_v051_universal_multibuy_promotions import (
     test_v051_xml_parser_keeps_distinct_deals_without_cross_contamination,
     test_v051_date_only_promotions_last_through_end_of_day_in_israel,
 )
+from tests.test_v052_trusted_multibuy_top3 import (
+    test_v052_live_yochananof_restriction_is_not_parsed_as_two_for_five,
+    test_v052_impossible_quantity_deals_are_rejected_for_every_product_and_chain,
+    test_v052_valid_quantity_deals_keep_exact_total_unit_price_and_saving_basis,
+    test_v052_ui_shows_three_offers_first_and_workflows_refresh_automatically,
+)
 
 for fn in (
     test_classifier, test_expanded_baby_product_classifier,
@@ -118,6 +124,10 @@ for fn in (
     test_v051_resolves_live_feed_total_convention_and_best_concurrent_offer,
     test_v051_xml_parser_keeps_distinct_deals_without_cross_contamination,
     test_v051_date_only_promotions_last_through_end_of_day_in_israel,
+    test_v052_live_yochananof_restriction_is_not_parsed_as_two_for_five,
+    test_v052_impossible_quantity_deals_are_rejected_for_every_product_and_chain,
+    test_v052_valid_quantity_deals_keep_exact_total_unit_price_and_saving_basis,
+    test_v052_ui_shows_three_offers_first_and_workflows_refresh_automatically,
 ):
     fn()
     print(f"✅ {fn.__name__}")
