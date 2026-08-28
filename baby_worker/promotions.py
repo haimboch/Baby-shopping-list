@@ -47,22 +47,25 @@ _AMOUNT = r"\d+(?:[.,]\d{1,2})?"
 _BUNDLE_PATTERNS = (
     # "2 ב-25", "2 יחידות במחיר 25", "2 for ₪25", "2/25".
     re.compile(
-        rf"(?<!\d)(?P<quantity>\d{{1,3}})\s*(?:{_UNIT_WORDS}\s*)?"
+        rf"(?<!\d)(?P<quantity>\d{{1,3}})(?!\d)\s*(?:{_UNIT_WORDS}\s*)?"
         rf"(?:במחיר(?:\s+של)?|ב|for|/)\s*[-:]?\s*{_CURRENCY}\s*"
         rf"(?P<total>{_AMOUNT})\s*{_CURRENCY}(?!\d)",
         re.IGNORECASE,
     ),
     # "מחיר ל-2 יחידות 25 ₪".
     re.compile(
-        rf"(?:מחיר\s*)?ל\s*-?\s*(?P<quantity>\d{{1,3}})\s*"
-        rf"(?:{_UNIT_WORDS}\s*)?(?:ב\s*-?\s*)?{_CURRENCY}\s*"
+        rf"(?<!\w)(?:מחיר\s*)?ל(?!\w)\s*-?\s*"
+        rf"(?P<quantity>\d{{1,3}})(?!\d)"
+        rf"(?:(?:\s*{_UNIT_WORDS})(?:\s*ב\s*-?\s*)?|\s*ב\s*-?\s*|\s+)"
+        rf"{_CURRENCY}\s*"
         rf"(?P<total>{_AMOUNT})\s*{_CURRENCY}(?!\d)",
         re.IGNORECASE,
     ),
     # "25 ₪ ל-2 יחידות" and "₪25 for 2 packs".
     re.compile(
         rf"{_CURRENCY}\s*(?P<total>{_AMOUNT})\s*{_CURRENCY}\s*"
-        rf"(?:ל|עבור|for)\s*-?\s*(?P<quantity>\d{{1,3}})\s*"
+        rf"(?<!\w)(?:ל|עבור|for)(?!\w)\s*-?\s*"
+        rf"(?P<quantity>\d{{1,3}})(?!\d)\s*"
         rf"(?:{_UNIT_WORDS})?(?!\d)",
         re.IGNORECASE,
     ),
@@ -116,6 +119,29 @@ def parse_bundle_description(description: Any) -> dict[str, float | int | str] |
     return None
 
 
+def _promotion_validation_reason(
+    quantity: int,
+    total: float | None,
+    unit_price: float | None,
+    regular: float | None,
+) -> str | None:
+    if quantity > 1:
+        if unit_price is None or total is None:
+            return "incomplete_multi_buy_terms"
+        if abs(total - unit_price * quantity) > max(0.02, total * 0.005):
+            return "inconsistent_multi_buy_total"
+        if regular is not None and total < regular - 0.01:
+            # A quantity deal whose entire basket costs less than one regular
+            # package is almost always a split-number/parser error. 1+1 free
+            # remains valid because its total equals one regular package.
+            return "bundle_total_below_single_regular_price"
+        if regular is not None and total >= regular * quantity - 0.005:
+            return "multi_buy_has_no_saving"
+    if regular is not None and unit_price is not None and unit_price >= regular:
+        return "promotion_has_no_saving"
+    return None
+
+
 def normalize_promotion_terms(
     promotion: dict[str, Any],
     regular_price: Any = None,
@@ -135,37 +161,44 @@ def normalize_promotion_terms(
         or normalized.get("name")
     )
     regular = _number(regular_price)
-    quantity = _quantity(normalized.get("promo_min_quantity")) or 1
+    structured_quantity = _quantity(normalized.get("promo_min_quantity"))
+    quantity = structured_quantity or 1
     total = _number(normalized.get("promo_total_price"))
     unit_price = _number(normalized.get("promo_price"))
 
     raw = normalized.get("raw_promo")
     if not isinstance(raw, dict):
         raw = {}
+    raw_explicit_price = _number(
+        raw.get("explicit_price")
+        or raw.get("promoPrice")
+        or raw.get("discountedPrice")
+    )
+    raw_total_price = _number(raw.get("total_price") or raw.get("totalPrice"))
     if unit_price is None:
-        unit_price = _number(
-            raw.get("explicit_price")
-            or raw.get("promoPrice")
-            or raw.get("discountedPrice")
-        )
+        unit_price = raw_explicit_price
     if total is None:
-        total = _number(raw.get("total_price") or raw.get("totalPrice"))
+        total = raw_total_price
 
     parsed = parse_bundle_description(description)
     if parsed:
         parsed_quantity = int(parsed["quantity"])
         # Human-readable terms are the safest fallback when provider fields
         # were flattened to an effective unit price.
-        if quantity <= 1:
+        if structured_quantity is None or structured_quantity <= 1:
             quantity = parsed_quantity
-        if parsed.get("kind") == "fixed_total" and (
-            total is None or quantity == parsed_quantity
+        quantities_agree = quantity == parsed_quantity
+        if (
+            parsed.get("kind") == "fixed_total"
+            and quantities_agree
+            and total is None
         ):
             total = float(parsed["total_price"])
         elif (
             parsed.get("kind") == "buy_get_free"
             and regular is not None
-            and quantity == parsed_quantity
+            and quantities_agree
+            and total is None
         ):
             total = round(regular * int(parsed["paid_quantity"]), 4)
 
@@ -192,12 +225,42 @@ def normalize_promotion_terms(
         if total is None and unit_price is not None:
             total = unit_price
 
-    if regular is not None and (
-        unit_price is None or unit_price >= regular
-    ):
+    validation_reason = _promotion_validation_reason(
+        quantity, total, unit_price, regular
+    )
+
+    # If free text produced impossible direct fields, retry the untouched
+    # structured source values before discarding the promotion. This repairs
+    # rows such as the live Yohananof case: parsed 2-for-5, raw value 110.
+    if validation_reason and quantity > 1 and regular is not None:
+        fallbacks: list[tuple[str, float]] = []
+        if raw_total_price is not None:
+            fallbacks.append(("total", raw_total_price))
+        if raw_explicit_price is not None:
+            fallbacks.append(("ambiguous", raw_explicit_price))
+        for kind, value in fallbacks:
+            if kind == "total":
+                candidate_total = value
+                candidate_unit = round(candidate_total / quantity, 4)
+            elif value < regular:
+                candidate_unit = value
+                candidate_total = round(candidate_unit * quantity, 4)
+            elif value / quantity < regular:
+                candidate_total = value
+                candidate_unit = round(candidate_total / quantity, 4)
+            else:
+                continue
+            candidate_reason = _promotion_validation_reason(
+                quantity, candidate_total, candidate_unit, regular
+            )
+            if candidate_reason is None:
+                total = candidate_total
+                unit_price = candidate_unit
+                validation_reason = None
+                break
+
+    if validation_reason is not None:
         unit_price = None
-        # Keep descriptive terms for diagnostics, but never apply a promotion
-        # that does not produce a real saving.
 
     normalized.update({
         "promo_price": round(unit_price, 4) if unit_price is not None else None,
@@ -205,6 +268,9 @@ def normalize_promotion_terms(
         "promo_min_quantity": quantity,
         "promo_total_price": round(total, 4) if total is not None else None,
         "requires_club": bool(normalized.get("requires_club")),
+        # Diagnostic only. The database writer intentionally stores only the
+        # public promotion columns, while tests/logs can explain rejections.
+        "promo_validation_reason": validation_reason,
     })
     return normalized
 
