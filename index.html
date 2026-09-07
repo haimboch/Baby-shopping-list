@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.54</title>
+<title>Baby Smart List · Dashboard v0.55</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -518,7 +518,7 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.54</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.55</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 <nav class="app-bottom-nav" aria-label="ניווט ראשי">
   <button class="app-nav-item active" data-app-nav="dashboard" aria-current="page"><span class="app-nav-icon" aria-hidden="true">⌂</span><small>הבית</small></button>
@@ -706,9 +706,11 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
     <div id="pushState" class="push-state">בודק אם Push פעיל במכשיר הזה…</div>
     <div class="actions">
       <button class="btn primary" id="enablePush">הפעל Push במכשיר הזה</button>
+      <button class="btn soft hidden" id="testPush">שלח התראת בדיקה</button>
       <button class="btn hidden" id="disablePush">כבה במכשיר הזה</button>
     </div>
     <div id="pushMsg" class="sub" style="margin-top:7px"></div>
+    <div class="sub" style="margin-top:7px">בדיקה בין שני משתמשים דורשת שני מכשירים או שני פרופילי דפדפן נפרדים.</div>
   </div>
 </section>
 </div></dialog>
@@ -838,7 +840,7 @@ function rowMatchesArea(r,profile){
   if(profile.codes?.includes(c))return true;
   return false;
 }
-let session=null,household=null,member=null,items=[],alts=[],consumption=[],catalog=[],householdUsers=[],notifications=[],notificationPrefs=null,dataHealth=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null,onboardStep=1,onboardLocation=null,activeCategory=null,activeSubcategory=null,highlightBarcode=null,signupMode=false;
+let session=null,household=null,member=null,items=[],alts=[],consumption=[],catalog=[],householdUsers=[],notifications=[],notificationPrefs=null,dataHealth=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null,onboardStep=1,onboardLocation=null,activeCategory=null,activeSubcategory=null,highlightBarcode=null,signupMode=false,pushServerRegistered=false;
 const DEFAULT_VISIBLE_OFFERS=3;
 let comparisonExpanded=false,productPriceView=null;
 let shoppingBaskets=[],activeShoppingBasket=null;
@@ -1522,49 +1524,72 @@ function updatePushNudge(mode,text){
   box.classList.remove("hidden")
 }
 async function syncExistingPushSubscription(){
-  if(!session||!household||notificationPrefs?.push_enabled===false||!("Notification" in window)||Notification.permission!=="granted")return false;
+  if(!session||!household||notificationPrefs?.push_enabled===false||!("Notification" in window)||Notification.permission!=="granted"){pushServerRegistered=false;return false}
   const sub=await currentPushSubscription();
-  if(!sub)return false;
+  if(!sub){pushServerRegistered=false;return false}
   try{
     const j=sub.toJSON(),keys=j.keys||{};
     const {error}=await sb.rpc("save_push_subscription_v032",{
       p_endpoint:sub.endpoint,p_p256dh:keys.p256dh,p_auth:keys.auth,p_user_agent:navigator.userAgent
     });
     if(error)throw error;
-    return true
-  }catch(e){console.warn("push subscription sync",e);return false}
+    pushServerRegistered=true;return true
+  }catch(e){pushServerRegistered=false;console.warn("push subscription sync",e);return false}
 }
 async function refreshPushState(){
-  const state=$("pushState"),on=$("enablePush"),off=$("disablePush");
+  const state=$("pushState"),on=$("enablePush"),off=$("disablePush"),test=$("testPush");
   if(!state)return;
   if(!("Notification" in window)||!("serviceWorker" in navigator)||!("PushManager" in window)){
     state.className="push-state push-warn";
     state.textContent="המכשיר או הדפדפן הזה לא תומך ב־Web Push.";
-    on.classList.add("hidden");off.classList.add("hidden");updatePushNudge("unsupported");return
+    on.classList.add("hidden");off.classList.add("hidden");test.classList.add("hidden");updatePushNudge("unsupported");return
   }
   if(isIOS()&&!isStandalone()){
     state.className="push-state push-warn";
     state.textContent="באייפון: הוסף את האתר למסך הבית, פתח אותו משם ואז הפעל Push.";
-    on.classList.remove("hidden");off.classList.add("hidden");updatePushNudge("ios","באייפון יש להוסיף את האפליקציה למסך הבית ולהפעיל משם.");return
+    on.classList.remove("hidden");off.classList.add("hidden");test.classList.add("hidden");updatePushNudge("ios","באייפון יש להוסיף את האפליקציה למסך הבית ולהפעיל משם.");return
   }
   const sub=await currentPushSubscription();
-  if(sub&&Notification.permission==="granted"&&notificationPrefs?.push_enabled!==false){
+  if(sub&&Notification.permission==="granted"&&notificationPrefs?.push_enabled!==false&&!pushServerRegistered)await syncExistingPushSubscription();
+  if(sub&&Notification.permission==="granted"&&notificationPrefs?.push_enabled!==false&&pushServerRegistered){
     state.className="push-state push-ok";
-    state.textContent="✅ Push פעיל במכשיר הזה.";
-    on.classList.add("hidden");off.classList.remove("hidden");updatePushNudge("active")
+    state.textContent="✅ המכשיר רשום גם בדפדפן וגם בשרת.";
+    on.classList.add("hidden");off.classList.remove("hidden");test.classList.remove("hidden");updatePushNudge("active")
+  }else if(sub&&Notification.permission==="granted"&&notificationPrefs?.push_enabled!==false){
+    state.className="push-state push-err";
+    state.textContent="הדפדפן אישר התראות, אבל הרישום בשרת נכשל. לחצו לתיקון.";
+    on.classList.remove("hidden");off.classList.add("hidden");test.classList.add("hidden");updatePushNudge("inactive","הרישום בשרת לא הושלם — לחצו לתיקון.")
   }else if(sub&&Notification.permission==="granted"){
     state.className="push-state push-warn";
     state.textContent="המכשיר רשום, אבל משלוח Push כבוי בהעדפות.";
-    on.classList.remove("hidden");off.classList.add("hidden");updatePushNudge("off","משלוח ההתראות כבוי במכשיר הזה.")
+    on.classList.remove("hidden");off.classList.add("hidden");test.classList.add("hidden");updatePushNudge("off","משלוח ההתראות כבוי במכשיר הזה.")
   }else if(Notification.permission==="denied"){
     state.className="push-state push-err";
     state.textContent="ההתראות חסומות בהגדרות הדפדפן/המכשיר.";
-    on.classList.remove("hidden");off.classList.add("hidden");updatePushNudge("denied","ההתראות חסומות בהגדרות הדפדפן או המכשיר.")
+    on.classList.remove("hidden");off.classList.add("hidden");test.classList.add("hidden");updatePushNudge("denied","ההתראות חסומות בהגדרות הדפדפן או המכשיר.")
   }else{
     state.className="push-state";
     state.textContent="Push עדיין לא הופעל במכשיר הזה.";
-    on.classList.remove("hidden");off.classList.add("hidden");updatePushNudge("inactive","צריך להפעיל Push פעם אחת בכל מכשיר.")
+    on.classList.remove("hidden");off.classList.add("hidden");test.classList.add("hidden");updatePushNudge("inactive","צריך להפעיל Push פעם אחת בכל מכשיר.")
   }
+}
+async function sendPushTest(){
+  const button=$("testPush"),message=$("pushMsg");
+  button.disabled=true;message.textContent="שולח התראת בדיקה אמיתית…";
+  try{
+    const {data}=await sb.auth.getSession(),accessToken=data.session?.access_token;
+    if(!accessToken)throw new Error("החיבור לחשבון פג; יש להיכנס מחדש");
+    const response=await fetch(`${SUPABASE_URL}/functions/v1/notification-push-v032`,{
+      method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${accessToken}`},
+      body:JSON.stringify({action:"test"})
+    });
+    const result=await response.json().catch(()=>({}));
+    if(result.error==="no_active_subscription"){pushServerRegistered=false;throw new Error("אין למשתמש הזה מכשיר רשום בשרת")}
+    if(!response.ok||!result.successes)throw new Error(result.error||"ספק ה־Push דחה את הבדיקה");
+    message.textContent="✅ השרת שלח עכשיו התראת בדיקה. אם היא לא הופיעה, יש לאפשר התראות ל־Chrome בהגדרות המכשיר.";
+    return true
+  }catch(e){message.textContent="בדיקת Push נכשלה: "+(e?.message||e);return false}
+  finally{button.disabled=false;await refreshPushState()}
 }
 async function enablePush(){
   $("pushMsg").textContent="";
@@ -1596,13 +1621,14 @@ async function enablePush(){
       p_endpoint:sub.endpoint,p_p256dh:keys.p256dh,p_auth:keys.auth,p_user_agent:navigator.userAgent
     });
     if(error)throw error;
+    pushServerRegistered=true;
     const pref=await sb.from("notification_preferences").upsert({
       household_id:household.id,user_id:session.user.id,push_enabled:true,updated_at:new Date().toISOString()
     },{onConflict:"household_id,user_id"});
     if(pref.error)throw pref.error;
     notificationPrefs={...defaultNotifPrefs(),...(notificationPrefs||{}),push_enabled:true};
-    $("pushMsg").textContent="✅ המכשיר נרשם להתראות.";
-    await refreshPushState()
+    $("pushMsg").textContent="✅ המכשיר נרשם להתראות. שולח בדיקה…";
+    await refreshPushState();await sendPushTest()
   }catch(e){
     $("pushMsg").textContent="לא הצלחתי להפעיל Push: "+(e?.message||e);
     await refreshPushState()
@@ -1615,6 +1641,7 @@ async function disablePush(){
       await sb.rpc("disable_push_subscription_v032",{p_endpoint:sub.endpoint});
       await sub.unsubscribe()
     }
+    pushServerRegistered=false;
     const pref=await sb.from("notification_preferences").upsert({
       household_id:household.id,user_id:session.user.id,push_enabled:false,updated_at:new Date().toISOString()
     },{onConflict:"household_id,user_id"});
@@ -2845,6 +2872,7 @@ $("prefMissing").onchange=e=>saveNotifPref("family_missing_enabled",e.target.che
 $("prefPrice").onchange=e=>saveNotifPref("price_deal_enabled",e.target.checked);
 $("prefLow").onchange=e=>saveNotifPref("low_stock_enabled",e.target.checked);
 $("enablePush").onclick=enablePush;
+$("testPush").onclick=sendPushTest;
 $("disablePush").onclick=disablePush;
 $("pushNudgeAction").onclick=()=>isIOS()&&!isStandalone()?openNotifications():enablePush();
 

@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v054-images-push-buy";
+const CACHE="baby-smart-v055-verified-push";
 const SHELL=["./","./index.html","./manifest.webmanifest","./app-icon-192.png","./app-icon-512.png"];
 
 self.addEventListener("install",event=>{

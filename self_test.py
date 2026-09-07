@@ -69,6 +69,12 @@ from tests.test_v052_trusted_multibuy_top3 import (
     test_v052_valid_quantity_deals_keep_exact_total_unit_price_and_saving_basis,
     test_v052_ui_shows_three_offers_first_and_workflows_refresh_automatically,
 )
+from tests.test_v055_push_diagnostics import (
+    test_v055_only_reports_push_active_after_server_registration,
+    test_v055_test_push_requires_a_real_authenticated_user,
+    test_v055_no_subscription_is_recorded_as_a_failure,
+    test_v055_forces_a_fresh_service_worker_cache,
+)
 
 for fn in (
     test_classifier, test_expanded_baby_product_classifier,
@@ -128,6 +134,10 @@ for fn in (
     test_v052_impossible_quantity_deals_are_rejected_for_every_product_and_chain,
     test_v052_valid_quantity_deals_keep_exact_total_unit_price_and_saving_basis,
     test_v052_ui_shows_three_offers_first_and_workflows_refresh_automatically,
+    test_v055_only_reports_push_active_after_server_registration,
+    test_v055_test_push_requires_a_real_authenticated_user,
+    test_v055_no_subscription_is_recorded_as_a_failure,
+    test_v055_forces_a_fresh_service_worker_cache,
 ):
     fn()
     print(f"✅ {fn.__name__}")
