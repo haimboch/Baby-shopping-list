@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.53</title>
+<title>Baby Smart List · Dashboard v0.54</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -81,6 +81,9 @@ dialog{border:0;border-radius:18px;width:min(540px,calc(100% - 22px));padding:0}
 .pref-row input{width:20px;height:20px;accent-color:var(--p)}
 .push-card{margin-top:12px;border:1px solid #dcd8ff;background:#faf9ff;border-radius:14px;padding:12px}
 .push-card b{display:block}.push-state{font-size:.75rem;color:#606779;line-height:1.45;margin:5px 0 9px}
+.push-nudge{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;padding:12px 14px;border:1px solid #dcd8ff;background:#faf9ff;border-radius:17px}
+.push-nudge-copy{display:flex;align-items:center;gap:10px}.push-nudge-copy span{font-size:1.35rem}.push-nudge-copy b,.push-nudge-copy small{display:block}.push-nudge-copy small{margin-top:3px;color:var(--muted)}
+.offer-actions{display:flex;justify-content:flex-end;margin-top:10px}.offer-actions .btn{min-height:38px}
 .push-ok{color:#087b58}.push-warn{color:#8a5a00}.push-err{color:#ad3348}
 
 .result-list{display:grid;gap:9px;margin-top:12px}.result-card{border:1px solid var(--line);border-radius:14px;padding:12px}.result-card.best{border:2px solid #68bda0;background:#f5fffb}
@@ -300,11 +303,11 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
 <div id="auth" class="center">
 <section class="card panel">
 <div class="brand"><div class="logo">👶</div><div><h1>המלאי של התינוק</h1><div class="sub">מלאי וקניות משותפים</div></div></div>
-<p class="auth-copy">נכנסים לחשבון קיים או יוצרים חשבון חדש, ואז בוחרים אם לפתוח משפחה או להצטרף למשפחה קיימת.</p>
+<p class="auth-copy" id="authCopy">נכנסים לחשבון הקיים עם אימייל וסיסמה.</p>
 <div class="field"><label>אימייל</label><input id="email" type="email" autocomplete="email" placeholder="name@example.com"></div>
 <div class="field"><label>סיסמה</label><input id="password" type="password" minlength="6" autocomplete="current-password" placeholder="לפחות 6 תווים"></div>
-<div class="field"><label>השם שיופיע למשפחה <span class="sub">— רק בהרשמה חדשה</span></label><input id="authName" maxlength="50" autocomplete="name" placeholder="למשל: חיים"></div>
-<div class="actions"><button class="btn primary" id="login">כניסה</button><button class="btn" id="signup">יצירת חשבון</button></div>
+<div class="field hidden" id="signupNameField"><label>השם שיופיע למשפחה</label><input id="authName" maxlength="50" autocomplete="name" placeholder="למשל: חיים"></div>
+<div class="actions"><button class="btn primary" id="login">כניסה</button><button class="btn" id="signup">יצירת חשבון חדש</button></div>
 <div id="authmsg" class="msg hidden"></div>
 </section>
 </div>
@@ -399,6 +402,11 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
       <h1 id="title">המלאי של התינוק</h1>
       <p>כל המוצרים והמחירים למשפחה, במקום אחד.</p>
     </div>
+
+    <section class="push-nudge hidden" id="pushNudge" aria-live="polite">
+      <div class="push-nudge-copy"><span aria-hidden="true">🔔</span><div><b>קבלו התראה גם כשהאפליקציה סגורה</b><small id="pushNudgeText">צריך להפעיל Push פעם אחת במכשיר הזה.</small></div></div>
+      <button class="btn primary" id="pushNudgeAction">הפעל התראות</button>
+    </section>
 
     <section class="home-overview" aria-label="תמונת מצב משפחתית">
       <div class="home-overview-copy">
@@ -510,7 +518,7 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.53</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.54</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 <nav class="app-bottom-nav" aria-label="ניווט ראשי">
   <button class="app-nav-item active" data-app-nav="dashboard" aria-current="page"><span class="app-nav-icon" aria-hidden="true">⌂</span><small>הבית</small></button>
@@ -830,7 +838,7 @@ function rowMatchesArea(r,profile){
   if(profile.codes?.includes(c))return true;
   return false;
 }
-let session=null,household=null,member=null,items=[],alts=[],consumption=[],catalog=[],householdUsers=[],notifications=[],notificationPrefs=null,dataHealth=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null,onboardStep=1,onboardLocation=null,activeCategory=null,activeSubcategory=null,highlightBarcode=null;
+let session=null,household=null,member=null,items=[],alts=[],consumption=[],catalog=[],householdUsers=[],notifications=[],notificationPrefs=null,dataHealth=[],filter="all",channel=null,currentNeed=null,lastCompare=null,selectedQuote=null,pendingGps=null,onboardStep=1,onboardLocation=null,activeCategory=null,activeSubcategory=null,highlightBarcode=null,signupMode=false;
 const DEFAULT_VISIBLE_OFFERS=3;
 let comparisonExpanded=false,productPriceView=null;
 let shoppingBaskets=[],activeShoppingBasket=null;
@@ -1319,13 +1327,15 @@ async function loadHouse(id){
   if(error)return alert(error.message);
   household=data;$("title").textContent=data.name;updateLocationButton();
   await Promise.all([loadAll(),loadNotifications(),loadHouseholdUsers(),loadDataHealth()]);
+  await syncExistingPushSubscription();
   await invite();subscribe();view("app");openDashboard();
+  await refreshPushState();
   setTimeout(handleAppHash,180)
 }
 function handleAppHash(){
   if(!session||!household)return;
   if(location.hash==="#notifications")return openNotifications();
-  const match=location.hash.match(/^#product=([0-9a-f-]{36})$/i);
+  const match=location.hash.match(/^#(?:buy|product)=([0-9a-f-]{36})$/i);
   if(!match)return;
   const product=items.find(item=>item.id===match[1]);
   if(!product)return;
@@ -1448,7 +1458,7 @@ function renderNotificationDialog(){
       <span class="notif-copy">
         <b>${esc(n.title)}</b>
         <p>${esc(n.body)}</p>
-        <small>${timeAgo(n.created_at)}</small>
+        <small>${timeAgo(n.created_at)}${n.product_id||n.data?.product_id?" · לחצו למחיר הזול ולחלופות באזור":""}</small>
       </span>
       ${n.read_at?"":'<span class="unread-dot"></span>'}
     </button>`).join(""):`<div class="notif-empty">🔕<br><b>שקט כאן כרגע</b><br><span class="sub">כשמשהו חסר, המחיר יורד או המלאי מתקרב לסיום, זה יופיע כאן.</span></div>`;
@@ -1503,36 +1513,57 @@ async function currentPushSubscription(){
     return await reg.pushManager.getSubscription()
   }catch{return null}
 }
+function updatePushNudge(mode,text){
+  const box=$("pushNudge"),copy=$("pushNudgeText"),button=$("pushNudgeAction");
+  if(!box)return;
+  if(mode==="active"||mode==="unsupported"){box.classList.add("hidden");return}
+  copy.textContent=text||"צריך להפעיל Push פעם אחת במכשיר הזה.";
+  button.textContent=mode==="ios"?"הוראות הפעלה":mode==="denied"?"פתח הגדרות":"הפעל התראות";
+  box.classList.remove("hidden")
+}
+async function syncExistingPushSubscription(){
+  if(!session||!household||notificationPrefs?.push_enabled===false||!("Notification" in window)||Notification.permission!=="granted")return false;
+  const sub=await currentPushSubscription();
+  if(!sub)return false;
+  try{
+    const j=sub.toJSON(),keys=j.keys||{};
+    const {error}=await sb.rpc("save_push_subscription_v032",{
+      p_endpoint:sub.endpoint,p_p256dh:keys.p256dh,p_auth:keys.auth,p_user_agent:navigator.userAgent
+    });
+    if(error)throw error;
+    return true
+  }catch(e){console.warn("push subscription sync",e);return false}
+}
 async function refreshPushState(){
   const state=$("pushState"),on=$("enablePush"),off=$("disablePush");
   if(!state)return;
   if(!("Notification" in window)||!("serviceWorker" in navigator)||!("PushManager" in window)){
     state.className="push-state push-warn";
     state.textContent="המכשיר או הדפדפן הזה לא תומך ב־Web Push.";
-    on.classList.add("hidden");off.classList.add("hidden");return
+    on.classList.add("hidden");off.classList.add("hidden");updatePushNudge("unsupported");return
   }
   if(isIOS()&&!isStandalone()){
     state.className="push-state push-warn";
     state.textContent="באייפון: הוסף את האתר למסך הבית, פתח אותו משם ואז הפעל Push.";
-    on.classList.remove("hidden");off.classList.add("hidden");return
+    on.classList.remove("hidden");off.classList.add("hidden");updatePushNudge("ios","באייפון יש להוסיף את האפליקציה למסך הבית ולהפעיל משם.");return
   }
   const sub=await currentPushSubscription();
   if(sub&&Notification.permission==="granted"&&notificationPrefs?.push_enabled!==false){
     state.className="push-state push-ok";
     state.textContent="✅ Push פעיל במכשיר הזה.";
-    on.classList.add("hidden");off.classList.remove("hidden")
+    on.classList.add("hidden");off.classList.remove("hidden");updatePushNudge("active")
   }else if(sub&&Notification.permission==="granted"){
     state.className="push-state push-warn";
     state.textContent="המכשיר רשום, אבל משלוח Push כבוי בהעדפות.";
-    on.classList.remove("hidden");off.classList.add("hidden")
+    on.classList.remove("hidden");off.classList.add("hidden");updatePushNudge("off","משלוח ההתראות כבוי במכשיר הזה.")
   }else if(Notification.permission==="denied"){
     state.className="push-state push-err";
     state.textContent="ההתראות חסומות בהגדרות הדפדפן/המכשיר.";
-    on.classList.remove("hidden");off.classList.add("hidden")
+    on.classList.remove("hidden");off.classList.add("hidden");updatePushNudge("denied","ההתראות חסומות בהגדרות הדפדפן או המכשיר.")
   }else{
     state.className="push-state";
     state.textContent="Push עדיין לא הופעל במכשיר הזה.";
-    on.classList.remove("hidden");off.classList.add("hidden")
+    on.classList.remove("hidden");off.classList.add("hidden");updatePushNudge("inactive","צריך להפעיל Push פעם אחת בכל מכשיר.")
   }
 }
 async function enablePush(){
@@ -2433,7 +2464,10 @@ function offerComparisonPrice(row){
   return Number(terms.active?terms.promo_price:normalized.effective_price)||Number.POSITIVE_INFINITY
 }
 function productPriceRowHtml(row,index,product){
-  return `<article class="catalog-card"><div class="ph"><div class="product-identity">${productPhoto(row,product.need_key,true)}<div><h3>${index===0&&row.freshness_eligible?"🏆 ":""}${esc(row.chain)}</h3><div class="brand-line">${esc(row.brand)} · ${esc(row.product_name||product.name)}</div><div class="meta">${esc(row.branch||"")}${Number.isFinite(row.distance_km)?` · ${row.distance_km.toFixed(1)} ק״מ`:""}${row.is_online&&row.nearby_branch_name?` · סניף קרוב: ${esc(row.nearby_branch_name)}${Number.isFinite(row.nearby_distance_km)?` · ${row.nearby_distance_km.toFixed(1)} ק״מ`:""}`:""}</div>${row.is_online?'<span class="online-badge">🌐 מחיר אונליין · מחיר ומלאי בסניף לא אומתו</span>':""}</div></div><b style="font-size:1.05rem;color:var(--ok)">${isMultiBuy(row)?esc(promotionSummary(row)):formatMoney(row.effective_price)}</b></div><div class="catalog-tags">${Number.isFinite(row.score)?`<span class="catalog-tag">${Number(row.score).toFixed(2)} ₪ ${esc(row.normalized_unit_label||"")}</span>`:""}${row.is_promotion?`<span class="catalog-tag">🏷️ ${esc(promotionSummary(row))}</span>`:""}</div></article>`
+  const latitude=row.latitude==null?Number.NaN:Number(row.latitude),longitude=row.longitude==null?Number.NaN:Number(row.longitude);
+  const navigation=Number.isFinite(latitude)&&Number.isFinite(longitude)
+    ?`<div class="offer-actions"><a class="btn soft" href="${branchWazeUrl({latitude,longitude})}" target="_blank" rel="noopener">📍 ניווט לסניף</a></div>`:"";
+  return `<article class="catalog-card"><div class="ph"><div class="product-identity">${productPhoto(row,product.need_key,true)}<div><h3>${index===0&&row.freshness_eligible?"🏆 הכי זול · ":""}${esc(row.chain)}</h3><div class="brand-line">${esc(row.brand)} · ${esc(row.product_name||product.name)}</div><div class="meta">${esc(row.branch||"")}${Number.isFinite(row.distance_km)?` · ${row.distance_km.toFixed(1)} ק״מ`:""}${row.is_online&&row.nearby_branch_name?` · סניף קרוב: ${esc(row.nearby_branch_name)}${Number.isFinite(row.nearby_distance_km)?` · ${row.nearby_distance_km.toFixed(1)} ק״מ`:""}`:""}</div>${row.is_online?'<span class="online-badge">🌐 מחיר אונליין · מחיר ומלאי בסניף לא אומתו</span>':""}</div></div><b style="font-size:1.05rem;color:var(--ok)">${isMultiBuy(row)?esc(promotionSummary(row)):formatMoney(row.effective_price)}</b></div><div class="catalog-tags">${Number.isFinite(row.score)?`<span class="catalog-tag">${Number(row.score).toFixed(2)} ₪ ${esc(row.normalized_unit_label||"")}</span>`:""}${row.is_promotion?`<span class="catalog-tag">🏷️ ${esc(promotionSummary(row))}</span>`:""}</div>${navigation}</article>`
 }
 function renderProductPriceGroup(kind){
   if(!productPriceView)return;
@@ -2471,7 +2505,7 @@ async function openProductPrices(id){
   $("alternativePricesHeading").textContent=preferredBrand?"🔄 יצרנים אחרים":"🔄 חלופות";
   productPriceView={product,preferred,alternatives,preferredBrand,expanded:{preferred:false,alternatives:false}};
   renderProductPriceGroup("preferred");renderProductPriceGroup("alternatives");
-  if(preferred.length&&alternatives.length&&singlePackagePrice(alternatives[0])<singlePackagePrice(preferred[0])){const savings=singlePackagePrice(preferred[0])-singlePackagePrice(alternatives[0]);$("pricesNotice").innerHTML=`<div class="msg" style="margin-top:12px"><b>💡 כדאי לשים לב:</b> ${esc(alternatives[0].brand)} זול יותר ב־${formatMoney(savings)} לאריזה אחת מהמוצר של ${esc(preferredBrand||preferred[0].brand)}.</div>`}
+  if(product.need_key!=="formula"&&product.allow_alternatives!==false&&preferred.length&&alternatives.length&&singlePackagePrice(alternatives[0])<singlePackagePrice(preferred[0])){const savings=singlePackagePrice(preferred[0])-singlePackagePrice(alternatives[0]);$("pricesNotice").innerHTML=`<div class="msg" style="margin-top:12px"><b>💡 חלופה זולה באזור:</b> ${esc(alternatives[0].brand)} ב־${esc(alternatives[0].chain)} זול יותר ב־${formatMoney(savings)} לאריזה אחת מהמוצר של ${esc(preferredBrand||preferred[0].brand)}.</div>`}
 }
 function renderComparison(){
   const data=lastCompare;if(!data)return;
@@ -2643,7 +2677,19 @@ function authErrorMessage(error,mode){
   return mode==="signup"?"לא הצלחנו ליצור את החשבון. בדקו את הפרטים ונסו שוב.":"לא הצלחנו להתחבר. בדקו את הפרטים ונסו שוב.";
 }
 $("login").onclick=async()=>{const email=$("email").value.trim(),password=$("password").value;if(!email||!password)return msg("authmsg","מלאו אימייל וסיסמה.",true);let {data,error}=await sb.auth.signInWithPassword({email,password});if(error)return msg("authmsg",authErrorMessage(error,"login"),true);session=data.session;await route()}
-$("signup").onclick=async()=>{const email=$("email").value.trim(),password=$("password").value,fullName=$("authName").value.trim()||email.split("@")[0];if(!email||!password)return msg("authmsg","מלאו אימייל וסיסמה כדי ליצור חשבון.",true);let {data,error}=await sb.auth.signUp({email,password,options:{emailRedirectTo:location.href.split("#")[0],data:{full_name:fullName}}});if(error)return msg("authmsg",authErrorMessage(error,"signup"),true);if(data.session){session=data.session;await route()}else msg("authmsg","החשבון נוצר. שלחנו קישור לאימייל—אשרו אותו ואז חזרו למסך הכניסה.")}
+function enterSignupMode(){
+  signupMode=true;$("signupNameField").classList.remove("hidden");$("authName").focus();
+  $("authCopy").textContent="יצירת חשבון חדש. לאחר מכן תבחרו אם לפתוח משפחה או להצטרף למשפחה קיימת.";
+  $("signup").textContent="צור חשבון";$("password").autocomplete="new-password"
+}
+$("signup").onclick=async()=>{
+  if(!signupMode)return enterSignupMode();
+  const email=$("email").value.trim(),password=$("password").value,fullName=$("authName").value.trim();
+  if(!email||!password||!fullName)return msg("authmsg","מלאו שם, אימייל וסיסמה כדי ליצור חשבון.",true);
+  let {data,error}=await sb.auth.signUp({email,password,options:{emailRedirectTo:location.href.split("#")[0],data:{full_name:fullName}}});
+  if(error)return msg("authmsg",authErrorMessage(error,"signup"),true);
+  if(data.session){session=data.session;await route()}else msg("authmsg","החשבון נוצר. שלחנו קישור לאימייל—אשרו אותו ואז חזרו למסך הכניסה.")
+}
 $("onext1").onclick=()=>{if(!$("ohname").value.trim())return alert("כתוב שם למלאי המשפחתי.");setOnboardStep(2)};
 $("onext2").onclick=()=>{if(!$("ocity").value.trim())return msg("onmsg","כתוב עיר.",true);if(!onboardLocation)return msg("onmsg","בחר מרכז עיר או GPS לפני שממשיכים.",true);setOnboardStep(3)};
 $("onext3").onclick=()=>{const chosen=selectedStarterNeeds();if(!chosen.length)return alert("בחרו לפחות מוצר אחד למעקב.");if(chosen.some(item=>item.key==="formula")&&!document.querySelector('[data-starterbrand="formula"]')?.value)return alert("בתמ״ל חובה לבחור שלב ויצרן מתוך הרשימה.");chosen.forEach(x=>x.selected=true);STARTER_NEEDS.forEach(x=>{if(!chosen.some(c=>c.key===x.key))x.selected=false});setOnboardStep(4)};
@@ -2788,16 +2834,11 @@ $("notifList").onclick=async e=>{
   const n=notifications.find(x=>x.id===b.dataset.notif);
   await markNotification(b.dataset.notif);
   if(!n)return;
-  const action=n.data?.action,productId=n.product_id||n.data?.product_id;
-  if(action==="compare"&&productId){
-    $("ndlg").close();
-    const exists=items.some(x=>x.id===productId);
-    if(exists)return comparePrices(productId)
-  }
+  const productId=n.product_id||n.data?.product_id;
   if(productId){
     $("ndlg").close();
     const p=items.find(x=>x.id===productId);
-    if(p)return openCatalogPage(p.category||"כללי",p.need_key||"other",p.preferred_barcode||null)
+    if(p)return p.preferred_barcode?openProductPrices(productId):openExactPackagePicker(p)
   }
 };
 $("prefMissing").onchange=e=>saveNotifPref("family_missing_enabled",e.target.checked);
@@ -2805,6 +2846,7 @@ $("prefPrice").onchange=e=>saveNotifPref("price_deal_enabled",e.target.checked);
 $("prefLow").onchange=e=>saveNotifPref("low_stock_enabled",e.target.checked);
 $("enablePush").onclick=enablePush;
 $("disablePush").onclick=disablePush;
+$("pushNudgeAction").onclick=()=>isIOS()&&!isStandalone()?openNotifications():enablePush();
 
 $("dqclose").onclick=()=>$("dqd").close();
 

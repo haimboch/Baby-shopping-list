@@ -1,4 +1,4 @@
-const CACHE="baby-smart-v053-exact-packages-push";
+const CACHE="baby-smart-v054-images-push-buy";
 const SHELL=["./","./index.html","./manifest.webmanifest","./app-icon-192.png","./app-icon-512.png"];
 
 self.addEventListener("install",event=>{
@@ -27,7 +27,11 @@ self.addEventListener("push",event=>{
   const options={
     body:payload.body||"יש עדכון חדש במלאי המשפחתי.",
     tag:payload.id||"baby-smart-notification",
-    renotify:false,
+    renotify:true,
+    icon:"./app-icon-192.png",
+    badge:"./app-icon-192.png",
+    vibrate:[180,80,180],
+    timestamp:payload.created_at?new Date(payload.created_at).getTime():Date.now(),
     data:payload,
     dir:"rtl",
     lang:"he"
@@ -39,7 +43,7 @@ self.addEventListener("notificationclick",event=>{
   event.notification.close();
   const payload=event.notification.data||{};
   const productId=payload?.data?.product_id||payload?.product_id||"";
-  const target=new URL(productId?`./#product=${encodeURIComponent(productId)}`:"./#notifications",self.registration.scope).href;
+  const target=new URL(productId?`./#buy=${encodeURIComponent(productId)}`:"./#notifications",self.registration.scope).href;
   event.waitUntil(
     clients.matchAll({type:"window",includeUncontrolled:true}).then(list=>{
       for(const client of list){
