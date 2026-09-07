@@ -16,6 +16,7 @@ from .rate_limit import record_call, wait_for_slot
 
 OPEN_PRODUCT_API = "https://world.openfoodfacts.org/api/v3/product"
 CHEAPERSAL_API = "https://api.cheapersal.co.il/api/v1/products"
+SUPER_PHARM_IMAGE_BASE = "https://superpharmstorage.blob.core.windows.net/products"
 IMAGE_FIELDS = "code,product_name,image_front_url,image_url,selected_images"
 IMAGE_KEYS = (
     "image_front_url", "image_url", "imageUrl", "image", "photo", "picture",
@@ -66,6 +67,44 @@ class ProductImageEnricher:
         self.api_key = str(api_key or "").strip()
         self.limit = max(0, int(limit))
         self.cheapersal_remaining = max(0, int(cheapersal_limit))
+
+    def _fetch_saved_retailer_image(self, barcode: str) -> tuple[str | None, str | None]:
+        """Reuse an exact-barcode image already collected from an official feed."""
+        rows = self.db.select(
+            "baby_retail_prices",
+            {
+                "select": "chain_id,barcode,raw_source,source_updated_at",
+                "barcode": f"eq.{barcode}",
+                "raw_source": "not.is.null",
+                "order": "source_updated_at.desc.nullslast",
+                "limit": "30",
+            },
+        )
+        for row in rows:
+            if _barcode(row.get("barcode")) != _barcode(barcode):
+                continue
+            image = extract_product_image(row.get("raw_source"))
+            if image:
+                chain = str(row.get("chain_id") or "retailer").replace("_", " ")
+                return image, f"{chain} feed · verified barcode"
+        return None, None
+
+    def _fetch_super_pharm_image(self, barcode: str) -> str | None:
+        """Check Super-Pharm's deterministic product-photo URL by exact barcode."""
+        url = f"{SUPER_PHARM_IMAGE_BASE}/{barcode}.jpg"
+        response = requests.get(url, timeout=12, allow_redirects=True, stream=True)
+        try:
+            if response.status_code in (404, 410):
+                return None
+            if not response.ok:
+                raise RuntimeError(f"Super-Pharm image HTTP {response.status_code}")
+            content_type = str(response.headers.get("Content-Type") or "").lower()
+            final_url = str(response.url or url)
+            if not content_type.startswith("image/") or _barcode(barcode) not in _barcode(final_url):
+                return None
+            return extract_product_image(final_url)
+        finally:
+            response.close()
 
     def _missing_catalog(self) -> list[dict[str, Any]]:
         retry_before = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
@@ -174,9 +213,15 @@ class ProductImageEnricher:
             image = None
             source = None
             try:
-                image = self._fetch_open_product_image(barcode)
+                image, source = self._fetch_saved_retailer_image(barcode)
+                if not image:
+                    image = self._fetch_super_pharm_image(barcode)
+                    if image:
+                        source = "Super-Pharm CDN · verified barcode"
+                if not image:
+                    image = self._fetch_open_product_image(barcode)
                 if image:
-                    source = "Open Products Facts · verified barcode"
+                    source = source or "Open Products Facts · verified barcode"
                 elif self.api_key and self.cheapersal_remaining > 0:
                     image = self._fetch_cheapersal_image(barcode)
                     if image:
