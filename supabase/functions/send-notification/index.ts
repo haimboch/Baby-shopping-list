@@ -127,6 +127,7 @@ export default {
         title: notification.title,
         body: notification.body,
         type: notification.notification_type,
+        product_id: notification.product_id,
         data: notification.data || {},
         created_at: notification.created_at,
       })
