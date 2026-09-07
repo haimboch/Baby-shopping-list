@@ -42,6 +42,53 @@ async function ensurePushConfig(admin: ReturnType<typeof createClient>) {
   return raced.data
 }
 
+async function sendToUser(
+  admin: ReturnType<typeof createClient>,
+  userId: string,
+  payload: Record<string, unknown>,
+) {
+  const subscriptionsResult = await admin
+    .from('push_subscriptions')
+    .select('*')
+    .eq('user_id', userId)
+    .is('disabled_at', null)
+  if (subscriptionsResult.error) throw subscriptionsResult.error
+
+  const subscriptions = subscriptionsResult.data || []
+  if (!subscriptions.length) {
+    return { successes: 0, errors: [] as string[], noSubscription: true }
+  }
+
+  const cfg = await ensurePushConfig(admin)
+  webpush.setVapidDetails(cfg.vapid_subject, cfg.vapid_public, cfg.vapid_private)
+  const encodedPayload = JSON.stringify(payload)
+  let successes = 0
+  const errors: string[] = []
+
+  for (const sub of subscriptions) {
+    try {
+      await webpush.sendNotification({
+        endpoint: sub.endpoint,
+        keys: { p256dh: sub.p256dh, auth: sub.auth_secret },
+      }, encodedPayload, { TTL: 86400, urgency: 'high' })
+      successes++
+      await admin.from('push_subscriptions')
+        .update({ last_success_at: new Date().toISOString(), disabled_at: null })
+        .eq('id', sub.id)
+    } catch (err: any) {
+      const code = Number(err?.statusCode || err?.status || 0)
+      const message = String(err?.message || err || 'push_failed').slice(0, 400)
+      errors.push(`${code || 'error'}:${message}`)
+      if (code === 404 || code === 410) {
+        await admin.from('push_subscriptions')
+          .update({ disabled_at: new Date().toISOString() })
+          .eq('id', sub.id)
+      }
+    }
+  }
+  return { successes, errors, noSubscription: false }
+}
+
 export default {
   async fetch(req: Request) {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -62,6 +109,31 @@ export default {
       if (body.action === 'config') {
         const cfg = await ensurePushConfig(admin)
         return json({ publicKey: cfg.vapid_public })
+      }
+
+      if (body.action === 'test') {
+        const authorization = req.headers.get('authorization') || ''
+        const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]
+        if (!token) return json({ error: 'authentication_required' }, 401)
+        const userResult = await admin.auth.getUser(token)
+        if (userResult.error || !userResult.data.user) {
+          return json({ error: 'invalid_session' }, 401)
+        }
+        const sent = await sendToUser(admin, userResult.data.user.id, {
+          id: `push-test-${crypto.randomUUID()}`,
+          title: '✅ בדיקת ההתראות הצליחה',
+          body: 'המכשיר הזה מחובר ויקבל התראות גם כשהאפליקציה סגורה.',
+          type: 'push_test',
+          data: { action: 'open_notifications' },
+          created_at: new Date().toISOString(),
+        })
+        if (sent.noSubscription) {
+          return json({ error: 'no_active_subscription' }, 409)
+        }
+        if (!sent.successes) {
+          return json({ error: 'push_provider_rejected', details: sent.errors }, 502)
+        }
+        return json({ ok: true, successes: sent.successes, failures: sent.errors.length })
       }
 
       if (body.action !== 'dispatch' || !body.notification_id || !body.dispatch_token) {
@@ -105,24 +177,7 @@ export default {
         return json({ ok: true, skipped: 'push_disabled' })
       }
 
-      const subscriptionsResult = await admin
-        .from('push_subscriptions')
-        .select('*')
-        .eq('user_id', notification.user_id)
-        .is('disabled_at', null)
-
-      const subscriptions = subscriptionsResult.data || []
-      if (!subscriptions.length) {
-        await admin.from('notification_dispatch_queue')
-          .update({ delivered_at: new Date().toISOString(), last_error: null })
-          .eq('notification_id', notification.id)
-        return json({ ok: true, skipped: 'no_active_subscription' })
-      }
-
-      const cfg = await ensurePushConfig(admin)
-      webpush.setVapidDetails(cfg.vapid_subject, cfg.vapid_public, cfg.vapid_private)
-
-      const payload = JSON.stringify({
+      const sent = await sendToUser(admin, notification.user_id, {
         id: notification.id,
         title: notification.title,
         body: notification.body,
@@ -131,44 +186,29 @@ export default {
         data: notification.data || {},
         created_at: notification.created_at,
       })
-
-      let successes = 0
-      const errors: string[] = []
-
-      for (const sub of subscriptions) {
-        try {
-          await webpush.sendNotification({
-            endpoint: sub.endpoint,
-            keys: { p256dh: sub.p256dh, auth: sub.auth_secret },
-          }, payload, { TTL: 86400, urgency: 'high' })
-          successes++
-          await admin.from('push_subscriptions')
-            .update({ last_success_at: new Date().toISOString(), disabled_at: null })
-            .eq('id', sub.id)
-        } catch (err: any) {
-          const code = Number(err?.statusCode || err?.status || 0)
-          const message = String(err?.message || err || 'push_failed').slice(0, 400)
-          errors.push(`${code || 'error'}:${message}`)
-          if (code === 404 || code === 410) {
-            await admin.from('push_subscriptions')
-              .update({ disabled_at: new Date().toISOString() })
-              .eq('id', sub.id)
-          }
-        }
+      if (sent.noSubscription) {
+        const now = new Date().toISOString()
+        await admin.from('notifications')
+          .update({ push_sent_at: null, push_error: 'no_active_subscription' })
+          .eq('id', notification.id)
+        await admin.from('notification_dispatch_queue')
+          .update({ delivered_at: now, last_error: 'no_active_subscription' })
+          .eq('notification_id', notification.id)
+        return json({ ok: true, skipped: 'no_active_subscription' })
       }
 
       const now = new Date().toISOString()
       await admin.from('notifications').update({
-        push_sent_at: successes > 0 ? now : null,
-        push_error: errors.length ? errors.join(' | ').slice(0, 1200) : null,
+        push_sent_at: sent.successes > 0 ? now : null,
+        push_error: sent.errors.length ? sent.errors.join(' | ').slice(0, 1200) : null,
       }).eq('id', notification.id)
 
       await admin.from('notification_dispatch_queue').update({
         delivered_at: now,
-        last_error: successes > 0 || errors.length === 0 ? null : errors.join(' | ').slice(0, 1200),
+        last_error: sent.successes > 0 || sent.errors.length === 0 ? null : sent.errors.join(' | ').slice(0, 1200),
       }).eq('notification_id', notification.id)
 
-      return json({ ok: true, successes, failures: errors.length })
+      return json({ ok: true, successes: sent.successes, failures: sent.errors.length })
     } catch (err: any) {
       return json({ error: String(err?.message || err || 'unknown_error').slice(0, 800) }, 500)
     }
