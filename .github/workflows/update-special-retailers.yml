@@ -32,8 +32,8 @@ jobs:
       ENRICHMENT_LIMIT: "0"
       SPECIAL_RETAILER_BATCH_SIZE: "48"
       SPECIAL_RETAILER_MAINTENANCE_HOURS: "4"
-      # 13 calls every four hours (78/day); the hourly supermarket flow uses
-      # zero provider calls, so the shared free quota stays below 100/day.
+      # 13 price calls plus 2 exact-barcode image calls every four hours
+      # (90/day); the hourly supermarket flow uses zero provider calls.
       # One bulk product request returns up to 200 products.
       CHEAPERSAL_PRICE_LOOKUP_LIMIT: "13"
       CHEAPERSAL_BULK_REQUEST_LIMIT: "10"
@@ -56,7 +56,7 @@ jobs:
       SUPER_PHARM_ONLINE_MAX_ITEMS: "120"
       SUPER_PHARM_ONLINE_CATEGORY_PAGES: "3"
       PRODUCT_IMAGE_LOOKUP_LIMIT: "48"
-      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "0"
+      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "2"
       PYTHONUNBUFFERED: "1"
 
     steps:
@@ -88,14 +88,3 @@ jobs:
 
       - name: Update KSP and Super-Pharm batches
         run: python run_worker.py --chains super_pharm,ksp
-
-      - name: Generate price notifications
-        shell: bash
-        run: |
-          curl --fail-with-body --silent --show-error \
-            --request POST \
-            "${SUPABASE_URL}/rest/v1/rpc/generate_price_notification_events_v035" \
-            --header "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            --header "Content-Type: application/json" \
-            --data '{}'

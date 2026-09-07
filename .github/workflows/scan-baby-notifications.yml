@@ -3,7 +3,7 @@ name: Scan Baby Notifications
 on:
   workflow_dispatch:
   workflow_run:
-    workflows: ["Update Baby Prices"]
+    workflows: ["Update Baby Prices", "Update KSP and Super-Pharm"]
     types: [completed]
 
 permissions:
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Generate in-app price notifications
+      - name: Generate unified in-app and push price notifications
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

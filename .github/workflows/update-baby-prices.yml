@@ -64,14 +64,3 @@ jobs:
             export WORKER_FILE_LIMIT="20"
           fi
           python run_worker.py
-
-      - name: Generate price notifications
-        shell: bash
-        run: |
-          curl --fail-with-body --silent --show-error \
-            --request POST \
-            "${SUPABASE_URL}/rest/v1/rpc/generate_price_notification_events_v035" \
-            --header "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            --header "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            --header "Content-Type: application/json" \
-            --data '{}'
