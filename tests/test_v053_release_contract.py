@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_exact_package_identity_is_visible_and_required():
     frontend = (ROOT / "index.html").read_text("utf-8")
 
-    assert "Dashboard v0.54" in frontend
+    assert "Dashboard v0.55" in frontend
     assert "אריזות וברקודים" in frontend
     assert 'data-select-package=' in frontend
     assert "▥ ברקוד ${esc(p.preferred_barcode)}" in frontend
@@ -23,7 +23,7 @@ def test_push_ui_preferences_and_product_deep_link_are_active():
     frontend = (ROOT / "index.html").read_text("utf-8")
     worker = (ROOT / "service-worker.js").read_text("utf-8")
     function = (
-        ROOT / "supabase/functions/notification-push-v032/index.ts"
+        ROOT / "supabase/functions/send-notification/index.ts"
     ).read_text("utf-8")
 
     assert '<div class="push-card">' in frontend

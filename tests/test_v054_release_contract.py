@@ -17,7 +17,7 @@ def test_returning_login_does_not_repeat_name_field():
 def test_every_device_is_prompted_and_existing_subscription_is_resynced():
     frontend = (ROOT / "index.html").read_text("utf-8")
     worker = (ROOT / "service-worker.js").read_text("utf-8")
-    edge = (ROOT / "supabase/functions/notification-push-v032/index.ts").read_text("utf-8")
+    edge = (ROOT / "supabase/functions/send-notification/index.ts").read_text("utf-8")
     assert 'id="pushNudge"' in frontend
     assert "syncExistingPushSubscription" in frontend
     assert 'save_push_subscription_v032' in frontend
