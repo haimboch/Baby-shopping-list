@@ -32,8 +32,8 @@ jobs:
       ENRICHMENT_LIMIT: "0"
       SPECIAL_RETAILER_BATCH_SIZE: "48"
       SPECIAL_RETAILER_MAINTENANCE_HOURS: "4"
-      # 13 price calls plus 2 exact-barcode image calls every four hours
-      # (90/day); the hourly supermarket flow uses zero provider calls.
+      # Image collection has its own six-hour workflow. This worker keeps the
+      # shared provider budget for price coverage only.
       # One bulk product request returns up to 200 products.
       CHEAPERSAL_PRICE_LOOKUP_LIMIT: "13"
       CHEAPERSAL_BULK_REQUEST_LIMIT: "10"
@@ -55,8 +55,8 @@ jobs:
       SUPER_PHARM_PROMO_INCREMENTAL_FILE_LIMIT: "30"
       SUPER_PHARM_ONLINE_MAX_ITEMS: "120"
       SUPER_PHARM_ONLINE_CATEGORY_PAGES: "3"
-      PRODUCT_IMAGE_LOOKUP_LIMIT: "48"
-      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "2"
+      PRODUCT_IMAGE_LOOKUP_LIMIT: "0"
+      CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "0"
       PYTHONUNBUFFERED: "1"
 
     steps:

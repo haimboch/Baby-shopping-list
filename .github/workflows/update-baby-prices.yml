@@ -32,7 +32,8 @@ jobs:
       # The hourly supermarket refresh uses the official transparency feeds.
       # Keep the shared free CheaperSal quota for KSP/Super-Pharm batches.
       ENRICHMENT_LIMIT: "0"
-      PRODUCT_IMAGE_LOOKUP_LIMIT: "36"
+      # Verified product photos are collected by collect-product-images.yml.
+      PRODUCT_IMAGE_LOOKUP_LIMIT: "0"
       CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "0"
       CHEAPERSAL_MIN_INTERVAL_SECONDS: "7"
       PYTHONUNBUFFERED: "1"
