@@ -95,6 +95,8 @@ def test_image_enrichment_verifies_exact_barcode():
         def select(self, table, params):
             if table == "products":
                 return [{"preferred_barcode": "7290000000011"}]
+            if table == "baby_retail_prices":
+                return []
             assert table == "baby_product_catalog"
             return [{"barcode": "7290000000011", "need_key": "diapers"}]
 
@@ -103,6 +105,7 @@ def test_image_enrichment_verifies_exact_barcode():
 
     db = FakeDatabase()
     enricher = ProductImageEnricher(db, limit=1, cheapersal_limit=0)
+    enricher._fetch_super_pharm_image = lambda barcode: None
     enricher._fetch_open_product_image = lambda barcode: (
         "https://images.openfoodfacts.org/images/products/729/front.jpg"
     )
@@ -145,6 +148,23 @@ def test_product_photo_is_rejected_when_barcode_does_not_match():
         )
     finally:
         product_images_module.requests.get = original_get
+
+
+def test_saved_retailer_photo_requires_the_exact_barcode():
+    image = "https://superpharmstorage.blob.core.windows.net/products/7290000000011.jpg"
+
+    class FakeDatabase:
+        def select(self, table, params):
+            assert table == "baby_retail_prices"
+            assert params["barcode"] == "eq.7290000000011"
+            return [
+                {"chain_id": "super_pharm", "barcode": "7290000000099", "raw_source": {"image_url": "https://example.test/wrong.jpg"}},
+                {"chain_id": "super_pharm", "barcode": "7290000000011", "raw_source": {"image_url": image}},
+            ]
+
+    saved, source = ProductImageEnricher(FakeDatabase())._fetch_saved_retailer_image("7290000000011")
+    assert saved == image
+    assert source == "super pharm feed · verified barcode"
 
 def test_expanded_product_package_quantities():
     assert parse_package_quantity("שמן אמבט לתינוק 500 מ״ל", "bath_oil") == (500, "מ״ל")

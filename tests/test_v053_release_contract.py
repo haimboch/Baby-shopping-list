@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_exact_package_identity_is_visible_and_required():
     frontend = (ROOT / "index.html").read_text("utf-8")
 
-    assert "Dashboard v0.53" in frontend
+    assert "Dashboard v0.54" in frontend
     assert "אריזות וברקודים" in frontend
     assert 'data-select-package=' in frontend
     assert "▥ ברקוד ${esc(p.preferred_barcode)}" in frontend
@@ -30,7 +30,7 @@ def test_push_ui_preferences_and_product_deep_link_are_active():
     assert "push_enabled:true" in frontend
     assert "push_enabled:false" in frontend
     assert "handleAppHash" in frontend
-    assert "#product=" in worker
+    assert "#buy=" in worker
     assert "product_id: notification.product_id" in function
 
 
@@ -56,11 +56,13 @@ def test_official_retailer_pages_feed_verified_image_pipeline():
     superpharm = (ROOT / "baby_worker/superpharm_online.py").read_text("utf-8")
     ksp = (ROOT / "baby_worker/ksp.py").read_text("utf-8")
     special = (ROOT / ".github/workflows/update-special-retailers.yml").read_text("utf-8")
+    images = (ROOT / ".github/workflows/collect-product-images.yml").read_text("utf-8")
 
     for source in (superpharm, ksp):
         assert '"og:image"' in source
         assert '"image_url": image_url' in source
-    assert 'CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "2"' in special
+    assert 'CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "0"' in special
+    assert 'CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "1"' in images
 
 
 def test_household_package_photos_are_private_and_scoped():
