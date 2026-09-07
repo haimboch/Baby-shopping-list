@@ -313,6 +313,7 @@ def test_multi_buy_promotion_terms():
 def test_ksp_official_product_parser():
     page = """<!doctype html><html><head>
       <meta property="product:price:amount" content="39.90">
+      <meta property="og:image" content="https://ksp.co.il/images/products/8700216596701.jpg">
       <script type="application/ld+json">{
         "@context":"https://schema.org","@type":"Product",
         "name":"Pampers חיתולים מידה 4 44 יחידות",
@@ -332,6 +333,9 @@ def test_ksp_official_product_parser():
     assert parsed["price_row"]["branch_code"] == "online"
     assert parsed["price_row"]["regular_price"] == 54.9
     assert parsed["promo_row"]["promo_price"] == 39.9
+    assert parsed["price_row"]["raw_source"]["image_url"].endswith(
+        "/8700216596701.jpg"
+    )
 
 
 def test_ksp_print_page_fallback_parser():
@@ -471,6 +475,7 @@ def test_superpharm_promo_filename_and_merge():
 def test_superpharm_online_product_and_promo_parser():
     page = """<html><head>
       <meta property="og:title" content="האגיס - מגבונים לחים לתינוק ללא בישום">
+      <meta property="og:image" content="https://superpharmstorage.blob.core.windows.net/products/7290000195537.jpg">
       <script type="application/ld+json">{
         "@type":"Product", "name":"מגבונים לחים לתינוק ללא בישום מארז רביעייה",
         "gtin13":"7290000195537", "brand":{"name":"האגיס"},
@@ -491,6 +496,9 @@ def test_superpharm_online_product_and_promo_parser():
     assert parsed["price_row"]["regular_price"] == 28.9
     assert parsed["promo_row"]["promo_price"] == 17.9
     assert parsed["promo_row"]["promo_end_at"] == "2026-08-25T23:59:59+00:00"
+    assert parsed["price_row"]["raw_source"]["image_url"].endswith(
+        "/7290000195537.jpg"
+    )
 
 
 def test_superpharm_online_multi_buy_parser():

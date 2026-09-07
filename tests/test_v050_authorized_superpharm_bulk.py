@@ -388,7 +388,7 @@ def test_v050_workflows_keep_the_shared_free_api_budget_safe():
     assert 'CHEAPERSAL_BULK_REQUEST_LIMIT: "10"' in special
     assert 'CHEAPERSAL_PROVIDER_REQUEST_RESERVE: "5"' in special
     assert 'SUPER_PHARM_DIRECT_ENABLED: "false"' in special
-    assert 'CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "0"' in special
+    assert 'CHEAPERSAL_IMAGE_LOOKUP_LIMIT: "2"' in special
     assert 6 * 13 <= 100
 
 
