@@ -16,6 +16,7 @@ from .classifier import (
     parse_package_quantity,
 )
 from .promotions import normalize_promotion_terms, parse_bundle_description
+from .product_images import extract_product_image
 from .product_types import SUPPORTED_PRODUCT_TYPES
 
 
@@ -328,6 +329,9 @@ def parse_superpharm_product_html(
     package_quantity, package_unit = parse_package_quantity(name, need_key, None, None)
     product_id_match = re.search(r"/p/(\d{4,12})", product_url)
     product_id = product_id_match.group(1) if product_id_match else None
+    image_url = extract_product_image(scope) or extract_product_image(
+        _meta_content(page_html, ("og:image", "twitter:image", "image"))
+    )
 
     price_row = {
         "source_name": "SUPER_PHARM",
@@ -347,6 +351,7 @@ def parse_superpharm_product_html(
             "source": "super_pharm_official_online_product_page",
             "product_id": product_id,
             "item_url": product_url,
+            "image_url": image_url,
             "current_price": current_price,
             "list_price": regular_price,
         },

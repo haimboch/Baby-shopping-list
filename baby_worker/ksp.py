@@ -17,6 +17,7 @@ from .classifier import (
     parse_package_quantity,
 )
 from .promotions import normalize_promotion_terms, parse_bundle_description
+from .product_images import extract_product_image
 from .product_types import SUPPORTED_PRODUCT_TYPES
 
 
@@ -430,6 +431,9 @@ def parse_ksp_product_html(
     )
     item_match = _ITEM_URL_RE.search(product_url)
     item_id = (item_match.group("plain") or item_match.group("legacy")) if item_match else None
+    image_url = extract_product_image(scope) or extract_product_image(
+        _meta_content(page_html, ("og:image", "twitter:image", "image"))
+    )
 
     price_row = {
         "source_name": "KSP",
@@ -449,6 +453,7 @@ def parse_ksp_product_html(
             "source": "ksp_official_product_page",
             "item_id": item_id,
             "item_url": product_url,
+            "image_url": image_url,
             "current_price": current_price,
             "list_price": regular_price,
         },
