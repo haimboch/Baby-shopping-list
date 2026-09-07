@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#6557e8">
 <link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./app-icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Baby Smart List">
-<title>Baby Smart List · Dashboard v0.52</title>
+<title>Baby Smart List · Dashboard v0.53</title>
 <style>
 :root{--bg:#f5f6fa;--card:#fff;--text:#232631;--muted:#777b8e;--line:#e6e8ef;--p:#6557e8;--ok:#15956d;--low:#d58b13;--out:#d34b5b;--urgent:#922f57}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
@@ -166,7 +167,7 @@ body{color:var(--ink)}
 .page-head{display:flex;align-items:center;gap:10px;margin:5px 2px 17px}.back-button{width:42px;height:42px;flex:0 0 42px;border:1px solid var(--line);border-radius:14px;background:#fff;font-size:1.05rem}.page-head-copy{min-width:0}.page-head-copy small{display:block;color:var(--violet);font-size:.7rem;font-weight:900}.page-head-copy h1{font-size:1.3rem;margin:2px 0}.page-head-copy p{margin:0;color:var(--soft-ink);font-size:.76rem}
 .subcategory-grid{display:grid;gap:9px}.subcategory-card{width:100%;border:1px solid var(--line);border-radius:18px;background:#fff;padding:12px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;text-align:right;box-shadow:0 7px 20px rgba(38,43,60,.05)}.subcategory-card:active{transform:scale(.99)}.subcategory-icon{width:48px;height:48px;border-radius:16px;background:var(--lilac);display:grid;place-items:center;font-size:1.4rem}.subcategory-card b{display:block;font-size:.92rem}.subcategory-card small{display:block;color:var(--soft-ink);font-size:.7rem;margin-top:3px}.subcategory-card .sub-arrow{color:var(--violet);font-size:1.1rem}
 .catalog-search{position:relative;margin-bottom:12px}.catalog-search input{width:100%;height:46px;border:1px solid var(--line);background:#fff;border-radius:15px;padding:0 42px 0 13px}.catalog-search span{position:absolute;right:14px;top:12px}.catalog-list{display:grid;gap:9px}.catalog-card{border:1px solid var(--line);border-radius:18px;background:#fff;padding:13px;box-shadow:0 7px 20px rgba(38,43,60,.05)}.catalog-card.highlighted{border:2px solid var(--violet);box-shadow:0 10px 26px rgba(101,87,232,.15)}.catalog-card-head{display:grid;grid-template-columns:auto minmax(0,1fr);gap:11px;align-items:start}.catalog-product-icon{width:46px;height:46px;border-radius:15px;background:var(--lilac);display:grid;place-items:center;font-size:1.35rem}.catalog-card h3{font-size:.91rem;margin:0}.catalog-card .brand-line{font-size:.74rem;color:var(--soft-ink);margin-top:3px}.catalog-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}.catalog-tag{background:#f2f4f8;color:#5f6676;border-radius:999px;padding:4px 7px;font-size:.64rem;font-weight:800}.catalog-card .actions{margin-top:11px}.catalog-card .actions .btn{flex:1;min-height:40px;font-size:.76rem}
-.product-photo{width:58px;height:58px;flex:0 0 58px;border-radius:16px;background:#fff;border:1px solid #e9eaf1;overflow:hidden;display:grid;place-items:center}.product-photo img{width:100%;height:100%;object-fit:contain;padding:4px}.product-photo-fallback{width:100%;height:100%;display:grid;place-items:center;background:var(--lilac);font-size:1.5rem}.product-photo.compact{width:45px;height:45px;flex-basis:45px;border-radius:13px}.product-photo.compact .product-photo-fallback{font-size:1.2rem}.product-identity{display:flex;align-items:center;gap:10px;min-width:0}.product-identity-copy{min-width:0}.product-identity-copy h3{margin:0}.photo-option-copy{display:flex;gap:9px;align-items:center;min-width:0}
+.product-photo{width:58px;height:58px;flex:0 0 58px;border-radius:16px;background:#fff;border:1px solid #e9eaf1;overflow:hidden;display:grid;place-items:center}.product-photo img{width:100%;height:100%;object-fit:contain;padding:4px}.product-photo-fallback{width:100%;height:100%;display:grid;grid-template-rows:auto auto;align-content:center;justify-items:center;gap:1px;background:var(--lilac);font-size:1.5rem}.product-photo-fallback small{font-size:.5rem;color:#777b8e;font-weight:800}.product-photo.compact{width:45px;height:45px;flex-basis:45px;border-radius:13px}.product-photo.compact .product-photo-fallback{font-size:1.2rem}.product-identity{display:flex;align-items:center;gap:10px;min-width:0}.product-identity-copy{min-width:0}.product-identity-copy h3{margin:0}.photo-option-copy{display:flex;gap:9px;align-items:center;min-width:0}.exact-package{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.exact-package .catalog-tag{background:#edf8f3;color:#087b58}.exact-package.missing .catalog-tag{background:#fff6e7;color:#99601c}.package-picker{border:0;padding:0;background:none;color:#6253d6;font-size:.7rem;font-weight:900;text-decoration:underline;text-underline-offset:3px}
 .catalog-empty{padding:34px 18px;text-align:center;border:1px dashed #d6d9e3;background:rgba(255,255,255,.6);border-radius:20px}.catalog-empty .big{font-size:2rem}.catalog-empty b{display:block;margin:8px 0 4px}.catalog-empty p{margin:0;color:var(--soft-ink);font-size:.78rem;line-height:1.5}
 .basket-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}.basket-actions .btn,.shopping-option .btn{min-height:43px;text-align:center;text-decoration:none;display:grid;place-items:center}.shopping-progress{padding:12px 14px;border-radius:16px;background:var(--lilac);color:var(--violet-dark);font-size:.83rem;font-weight:800;margin-bottom:12px}.shopping-item{display:grid;gap:10px}.shopping-item.is-bought{border-color:#bfe5d7;background:#f4fcf8}.shopping-option{border:1px solid var(--line);border-radius:14px;padding:10px;display:grid;gap:8px}.shopping-option.alternative{background:#f4fbf7;border-color:#cceadc}.shopping-option-head{display:flex;justify-content:space-between;align-items:start;gap:8px}.shopping-option-head b{font-size:.84rem}.shopping-option-head strong{white-space:nowrap;color:var(--ok)}.shopping-option small{color:var(--soft-ink);font-size:.72rem}.shopping-complete{padding:9px;border-radius:12px;background:#e7f7ef;color:#087b58;font-size:.77rem;font-weight:800;text-align:center}
 .family-summary{display:flex;align-items:center;gap:10px;background:#f8f8fc;border:1px solid var(--line);border-radius:14px;padding:11px;margin:12px 0}.family-summary .family-stack{font-size:1.3rem}.family-summary b{display:block}.family-summary small{color:var(--soft-ink)}.family-members{display:grid;gap:8px;margin:12px 0}.family-member{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:10px}.member-avatar{width:38px;height:38px;border-radius:13px;background:var(--lilac);display:grid;place-items:center;font-weight:900;color:var(--violet)}.family-member b{display:block;font-size:.82rem;overflow:hidden;text-overflow:ellipsis}.family-member small{display:block;color:var(--soft-ink);font-size:.68rem;margin-top:2px}.role-tag{background:#eef8f4;color:#087b58;border-radius:999px;padding:4px 7px;font-size:.61rem;font-weight:900}
@@ -509,7 +510,7 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
     <section id="products" class="products"></section>
   </section>
 </main>
-<div class="app-footnote">Baby Smart List · Dashboard v0.52</div>
+<div class="app-footnote">Baby Smart List · Dashboard v0.53</div>
 <button class="fab dashboard-hidden" id="add">＋ צורך</button>
 <nav class="app-bottom-nav" aria-label="ניווט ראשי">
   <button class="app-nav-item active" data-app-nav="dashboard" aria-current="page"><span class="app-nav-icon" aria-hidden="true">⌂</span><small>הבית</small></button>
@@ -648,6 +649,7 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
 <button class="btn primary" id="barcodeLookup" style="width:100%">אתר מוצר</button>
 <div class="scan-state hidden" id="barcodeState"></div>
 </div></dialog>
+<input class="hidden" id="packagePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
 
 <dialog id="ldlg"><div class="dlg">
 <div class="dh"><div><h3 style="margin:0">📍 אזור חיפוש</h3><div class="sub">משותף לכל בני המשפחה</div></div><button class="btn" id="lclose">✕</button></div>
@@ -690,8 +692,9 @@ dialog{max-height:calc(100dvh - 24px);border-radius:25px;box-shadow:0 28px 80px 
     <input id="prefLow" type="checkbox">
   </label>
 
-  <div class="push-card hidden">
+  <div class="push-card">
     <b>📲 התראות למכשיר</b>
+    <div class="sub">חוסר, מלאי נמוך ומבצע מדויק יופיעו גם כשהאפליקציה סגורה.</div>
     <div id="pushState" class="push-state">בודק אם Push פעיל במכשיר הזה…</div>
     <div class="actions">
       <button class="btn primary" id="enablePush">הפעל Push במכשיר הזה</button>
@@ -833,7 +836,7 @@ let comparisonExpanded=false,productPriceView=null;
 let shoppingBaskets=[],activeShoppingBasket=null;
 const purchasedShoppingItems=new Map(),pendingShoppingPurchases=new Set();
 let monthlySavings={actual:0,potential:0,purchaseCount:0,totalSpent:0},savingsRequestId=0;
-let zxingLoadPromise=null;
+let zxingLoadPromise=null,pendingPackagePhotoProduct=null;
 const $=x=>document.getElementById(x),esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function view(id){["auth","onboard","app"].forEach(x=>$(x).classList.add("hidden"));$(id).classList.remove("hidden")}
 function msg(id,t,e=false){let x=$(id);x.textContent=t;x.classList.remove("hidden","err");if(e)x.classList.add("err")}
@@ -916,18 +919,18 @@ function renderMvpReadiness(){
   const missingLocation=!hasCoords(household);
   const missingSetup=configured.filter(p=>{
     const cfg=NEEDS[p.need_key]||NEEDS.other;
-    return (cfg.dimension_type!=="none"&&!p.dimension_value)||(p.need_key==="formula"&&!p.preferred_barcode);
+    return (cfg.dimension_type!=="none"&&!p.dimension_value)||!p.preferred_barcode;
   });
   const missingQuantity=configured.filter(p=>p.quantity==null);
   const freshChains=dataHealth.filter(row=>Number(row.fresh_price_rows||0)>0).length;
   const healthReady=dataHealth.length>0&&freshChains>0;
   const cards=[
     readinessCard(missingLocation?"bad":"good",missingLocation?"📍":"✅","מיקום וסניפים",missingLocation?"צריך לשמור GPS או מרכז עיר כדי לחשב סלים קרובים.":`${household.city||"אזור"} · ${household.search_radius_km||10} ק״מ`,"location"),
-    readinessCard(!configured.length?"bad":missingSetup.length?"warn":"good",!configured.length?"📦":missingSetup.length?"⚙️":"✅","מוצרים והעדפות",!configured.length?"בחרו לפחות מוצר אחד למלאי האישי.":missingSetup.length?`${missingSetup.length} מוצרים דורשים מידה/שלב או יצרן תמ״ל.`:"המלאי האישי וההעדפות מוכנים להשוואה.","preferences",missingSetup[0]?.id||""),
+    readinessCard(!configured.length?"bad":missingSetup.length?"warn":"good",!configured.length?"📦":missingSetup.length?"▥":"✅","אריזות וברקודים",!configured.length?"בחרו לפחות מוצר אחד למלאי האישי.":missingSetup.length?`${missingSetup.length} מוצרים ממתינים לבחירת אריזה מדויקת וברקוד.`:"לכל מוצר נבחרו אריזה וברקוד מדויקים.",missingSetup.length?"package":"preferences",missingSetup[0]?.id||""),
     readinessCard(!configured.length?"warn":missingQuantity.length?"warn":"good",missingQuantity.length?"📊":"✅","כמות וסטטוס",!configured.length?"הכמות תוגדר אחרי הוספת המוצר.":missingQuantity.length?`${missingQuantity.length} מוצרים ללא כמות התחלתית.`:"הכמויות מאפשרות ללמוד את קצב הצריכה.","inventory"),
     readinessCard(healthReady?"good":dataHealth.length?"warn":"warn",healthReady?"🛡️":"🕒","מחירים ותמונות",healthReady?`${freshChains} רשתות עם מחירים טריים.`:dataHealth.length?"אין כרגע מספיק מחירים טריים לסל מלא.":"הריצו את עדכון ה־SQL של v0.46 ואז רעננו.","data")
   ];
-  target.innerHTML=cards.join("")+`<div class="readiness-note">🍼 יצרן חובה רק בתמ״ל, והוא לא מוחלף אוטומטית. בשאר המוצרים ברירת המחדל היא כל המותגים.</div>`;
+  target.innerHTML=cards.join("")+`<div class="readiness-note">▥ ברקוד ותמונה מוצגים רק לאחר בחירת האריזה המדויקת. 🍼 בתמ״ל אין החלפה אוטומטית למוצר אחר.</div>`;
 }
 function healthTag(row){
   const fresh=Number(row.fresh_price_rows||0),stamp=row.latest_price_at;
@@ -977,7 +980,14 @@ function renderDashboard(){
     const dimensions=config.dimension_type!=="none"?`<label style="display:grid;gap:4px;font-size:.72rem;color:var(--muted)">${esc(config.label)}<select data-inventory-dimension="${p.id}" style="min-height:38px;border:1px solid var(--line);border-radius:9px;padding:5px"><option value="">בחרו ${esc(config.label)}</option>${config.values.map(value=>`<option value="${esc(value)}" ${String(p.dimension_value)===value?"selected":""}>${esc(config.label)} ${esc(value)}</option>`).join("")}</select></label>`:"";
     const brand=`<label style="display:grid;gap:4px;font-size:.72rem;color:var(--muted)">${formula?"יצרן חובה *":"יצרן מועדף"}<select data-inventory-brand="${p.id}" style="min-height:38px;border:1px solid var(--line);border-radius:9px;padding:5px"><option value="">${formula?"בחרו יצרן *":"כל המותגים"}</option>${brands.map(value=>`<option value="${esc(value)}" ${selected?.brand===value?"selected":""}>${esc(value)}</option>`).join("")}</select></label>`;
     const brandDescription=selected?.brand?esc(selected.brand):formula?'<span class="formula-required">חובה לבחור יצרן לתמ״ל</span>':"כל המותגים";
-    return `<article class="product" style="background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px"><div class="ph"><div class="product-identity">${productPhoto(selected||p,p.need_key)}<div class="product-identity-copy"><h3>${esc(p.name)}</h3><div class="meta">${brandDescription}</div></div></div><span style="font-weight:800;color:${S[p.stock_status]?.[2]||S.ok[2]}">${S[p.stock_status]?.[1]||"🟢"}</span></div><div style="display:grid;grid-template-columns:${dimensions?"1fr 1fr":"1fr"};gap:9px;margin-top:10px">${dimensions}${brand}</div><div class="statuses" style="grid-template-columns:repeat(3,1fr)">${[["ok","🟢","יש"],["low","🟠","עומד להיגמר"],["out","🔴","חסר"]].map(([key,icon,text])=>`<button class="sbtn ${current===key?"cur":""}" data-dashboard-status="${key}" data-product-id="${p.id}" data-s="${key}">${icon} ${text}</button>`).join("")}</div><button class="btn primary" style="width:100%;margin-top:10px;min-height:42px" data-inventory-search="${p.id}">🔎 חיפוש מוצר והשוואת מחירים</button></article>`
+    const exactPhoto=selected?.image_url||p._package_image_url;
+    const exactPackage=selected&&p.preferred_barcode
+      ?`<div class="exact-package"><span class="catalog-tag">▥ ברקוד ${esc(p.preferred_barcode)}</span>${exactPhoto?'<span class="catalog-tag">✓ תמונת אריזה</span>':`<button class="package-picker" data-package-photo="${p.id}">📷 צלמו את האריזה</button>`}</div>`
+      :`<div class="exact-package missing"><span class="catalog-tag">חסרים אריזה וברקוד</span><button class="package-picker" data-select-package="${p.id}">בחרו מוצר מדויק</button></div>`;
+    const primaryAction=selected&&p.preferred_barcode
+      ?`<button class="btn primary" style="width:100%;margin-top:10px;min-height:42px" data-inventory-search="${p.id}">🔎 השוואת מחיר למוצר המדויק</button>`
+      :`<button class="btn primary" style="width:100%;margin-top:10px;min-height:42px" data-select-package="${p.id}">▥ בחירת אריזה וברקוד</button>`;
+    return `<article class="product" style="background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px"><div class="ph"><div class="product-identity">${productPhoto({...selected,...p,image_url:selected?.image_url||p.image_url},p.need_key)}<div class="product-identity-copy"><h3>${esc(selected?.product_name||p.name)}</h3><div class="meta">${brandDescription}</div>${exactPackage}</div></div><span style="font-weight:800;color:${S[p.stock_status]?.[2]||S.ok[2]}">${S[p.stock_status]?.[1]||"🟢"}</span></div><div style="display:grid;grid-template-columns:${dimensions?"1fr 1fr":"1fr"};gap:9px;margin-top:10px">${dimensions}${brand}</div><div class="statuses" style="grid-template-columns:repeat(3,1fr)">${[["ok","🟢","יש"],["low","🟠","עומד להיגמר"],["out","🔴","חסר"]].map(([key,icon,text])=>`<button class="sbtn ${current===key?"cur":""}" data-dashboard-status="${key}" data-product-id="${p.id}" data-s="${key}">${icon} ${text}</button>`).join("")}</div>${primaryAction}</article>`
   }).join("")}</section>`).join(""):`<div style="background:#fff;border:1px dashed var(--line);border-radius:16px;padding:22px;text-align:center;color:var(--muted)">עדיין אין מוצרים במלאי. הוסיפו מוצר דרך הקטגוריות או הברקוד.</div>`;
   const cats=dashboardCategories();
   $("categoryGrid").innerHTML=cats.map(c=>{
@@ -1081,11 +1091,18 @@ function productEmoji(key){return subcategoryDefinition(activeCategory,key)?.emo
 function productPhoto(row,key=row?.need_key,compact=false){
   const barcode=String(row?.barcode||row?.preferred_barcode||"");
   const known=barcode?catalog.find(item=>String(item.barcode)===barcode):null;
-  const candidate=String(row?.image_url||known?.image_url||"").trim();
+  const candidate=String(row?.image_url||row?._package_image_url||known?.image_url||"").trim();
   const source=/^https:\/\/[^\s]+$/i.test(candidate)?candidate:"";
   const label=row?.product_name||row?.name||known?.product_name||"מוצר לתינוק";
   const icon=productEmoji(key||known?.need_key);
-  return `<span class="product-photo${compact?" compact":""}">${source?`<img src="${esc(source)}" alt="${esc(label)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'"><span class="product-photo-fallback" style="display:none" aria-hidden="true">${icon}</span>`:`<span class="product-photo-fallback" aria-hidden="true">${icon}</span>`}</span>`
+  const fallback=`<span class="product-photo-fallback"${source?' style="display:none"':""} aria-label="תמונת האריזה טרם זמינה"><span aria-hidden="true">${icon}</span><small>בהשלמה</small></span>`;
+  return `<span class="product-photo${compact?" compact":""}">${source?`<img src="${esc(source)}" alt="${esc(label)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">`:""}${fallback}</span>`
+}
+function openExactPackagePicker(productOrId){
+  const product=typeof productOrId==="string"?items.find(item=>item.id===productOrId):productOrId;
+  if(!product)return;
+  const category=dashboardCategories().find(group=>group.subs.some(sub=>sub.key===product.need_key));
+  openCatalogPage(category?.id||product.category||"כללי",product.need_key||"other",product.preferred_barcode||null)
 }
 function matchingTrackedNeed(row){
   return items.find(p=>p.preferred_barcode&&String(p.preferred_barcode)===String(row.barcode))
@@ -1303,7 +1320,16 @@ async function loadHouse(id){
   household=data;$("title").textContent=data.name;updateLocationButton();
   await Promise.all([loadAll(),loadNotifications(),loadHouseholdUsers(),loadDataHealth()]);
   await invite();subscribe();view("app");openDashboard();
-  if(location.hash==="#notifications")setTimeout(openNotifications,180)
+  setTimeout(handleAppHash,180)
+}
+function handleAppHash(){
+  if(!session||!household)return;
+  if(location.hash==="#notifications")return openNotifications();
+  const match=location.hash.match(/^#product=([0-9a-f-]{36})$/i);
+  if(!match)return;
+  const product=items.find(item=>item.id===match[1]);
+  if(!product)return;
+  return product.preferred_barcode?openProductPrices(product.id):openExactPackagePicker(product)
 }
 
 function defaultInventoryUnit(p){
@@ -1433,7 +1459,8 @@ function renderNotificationDialog(){
 async function openNotifications(){
   await loadNotifications();
   renderNotificationDialog();
-  if(!$("ndlg").open)$("ndlg").showModal()
+  if(!$("ndlg").open)$("ndlg").showModal();
+  await refreshPushState()
 }
 async function markNotification(id){
   const now=new Date().toISOString();
@@ -1490,10 +1517,14 @@ async function refreshPushState(){
     on.classList.remove("hidden");off.classList.add("hidden");return
   }
   const sub=await currentPushSubscription();
-  if(sub&&Notification.permission==="granted"){
+  if(sub&&Notification.permission==="granted"&&notificationPrefs?.push_enabled!==false){
     state.className="push-state push-ok";
     state.textContent="✅ Push פעיל במכשיר הזה.";
     on.classList.add("hidden");off.classList.remove("hidden")
+  }else if(sub&&Notification.permission==="granted"){
+    state.className="push-state push-warn";
+    state.textContent="המכשיר רשום, אבל משלוח Push כבוי בהעדפות.";
+    on.classList.remove("hidden");off.classList.add("hidden")
   }else if(Notification.permission==="denied"){
     state.className="push-state push-err";
     state.textContent="ההתראות חסומות בהגדרות הדפדפן/המכשיר.";
@@ -1534,6 +1565,11 @@ async function enablePush(){
       p_endpoint:sub.endpoint,p_p256dh:keys.p256dh,p_auth:keys.auth,p_user_agent:navigator.userAgent
     });
     if(error)throw error;
+    const pref=await sb.from("notification_preferences").upsert({
+      household_id:household.id,user_id:session.user.id,push_enabled:true,updated_at:new Date().toISOString()
+    },{onConflict:"household_id,user_id"});
+    if(pref.error)throw pref.error;
+    notificationPrefs={...defaultNotifPrefs(),...(notificationPrefs||{}),push_enabled:true};
     $("pushMsg").textContent="✅ המכשיר נרשם להתראות.";
     await refreshPushState()
   }catch(e){
@@ -1548,6 +1584,11 @@ async function disablePush(){
       await sb.rpc("disable_push_subscription_v032",{p_endpoint:sub.endpoint});
       await sub.unsubscribe()
     }
+    const pref=await sb.from("notification_preferences").upsert({
+      household_id:household.id,user_id:session.user.id,push_enabled:false,updated_at:new Date().toISOString()
+    },{onConflict:"household_id,user_id"});
+    if(pref.error)throw pref.error;
+    notificationPrefs={...defaultNotifPrefs(),...(notificationPrefs||{}),push_enabled:false};
     $("pushMsg").textContent="Push כובה במכשיר הזה.";
     await refreshPushState()
   }catch(e){$("pushMsg").textContent="לא הצלחתי לכבות Push: "+(e?.message||e)}
@@ -1564,6 +1605,36 @@ async function loadActiveCatalog(){
   }
   return {data:rows,error:null}
 }
+async function hydratePrivatePackagePhotos(products){
+  await Promise.all(products.filter(product=>product.package_image_path).map(async product=>{
+    const {data,error}=await sb.storage.from("baby-package-images").createSignedUrl(product.package_image_path,3600);
+    if(error){console.warn("package photo",error.message);return}
+    product._package_image_url=data?.signedUrl||null
+  }))
+}
+function choosePackagePhoto(productId){
+  const product=items.find(item=>item.id===productId);
+  if(!product?.preferred_barcode)return alert("תחילה בחרו אריזה וברקוד מדויקים למוצר.");
+  pendingPackagePhotoProduct=product;
+  $("packagePhotoInput").value="";
+  $("packagePhotoInput").click()
+}
+async function uploadPackagePhoto(file){
+  const product=pendingPackagePhotoProduct;
+  pendingPackagePhotoProduct=null;
+  if(!product||!file)return;
+  if(!["image/jpeg","image/png","image/webp"].includes(file.type))return alert("אפשר להעלות צילום JPEG, PNG או WebP בלבד.");
+  if(file.size>5*1024*1024)return alert("הצילום גדול מ־5MB. נסו צילום קטן יותר.");
+  const path=`${household.id}/${product.id}/package`;
+  const uploaded=await sb.storage.from("baby-package-images").upload(path,file,{contentType:file.type,cacheControl:"3600",upsert:true});
+  if(uploaded.error)return alert("לא הצלחתי לשמור את צילום האריזה: "+uploaded.error.message);
+  const saved=await sb.from("products").update({package_image_path:path,updated_by:session.user.id}).eq("id",product.id);
+  if(saved.error)return alert("הצילום הועלה, אבל לא הצלחתי לקשר אותו למוצר: "+saved.error.message);
+  product.package_image_path=path;
+  const signed=await sb.storage.from("baby-package-images").createSignedUrl(path,3600);
+  product._package_image_url=signed.data?.signedUrl||null;
+  renderDashboard()
+}
 async function loadAll(){
   let [pr,ar,cr,catr]=await Promise.all([
     sb.from("products").select("*").eq("household_id",household.id).eq("is_active",true).order("created_at"),
@@ -1575,7 +1646,7 @@ async function loadAll(){
   if(ar.error)return alert("שגיאה בטעינת המוצרים החלופיים: "+ar.error.message);
   if(cr.error)return alert("שגיאה בטעינת נתוני הצריכה: "+cr.error.message);
   if(catr.error)console.warn("catalog",catr.error);
-  items=pr.data||[];alts=ar.data||[];consumption=cr.data||[];catalog=catr.data||catalog||[];render();
+  items=pr.data||[];await hydratePrivatePackagePhotos(items);alts=ar.data||[];consumption=cr.data||[];catalog=catr.data||catalog||[];render();
   if(currentNeed&&$("adlg").open)renderAltDialog();
   loadMonthlySavings().catch(error=>console.warn("monthly savings",error));
 }
@@ -2593,7 +2664,7 @@ $("catalogProducts").onclick=e=>{
   const manual=e.target.closest("[data-add-manual]");if(manual){openNeed();if(NEEDS[activeSubcategory]){$("pneedkey").value=activeSubcategory;syncNeedForm(false)}else{$("pneedkey").value="other";syncNeedForm(false);$("pname").value=subcategoryDefinition(activeCategory,activeSubcategory).name}return}
 };
 document.querySelectorAll("[data-back-dashboard]").forEach(b=>b.onclick=openDashboard);
-$("mvpReadiness").onclick=e=>{const b=e.target.closest("[data-readiness-action]");if(!b)return;const action=b.dataset.readinessAction;if(action==="location")return openLocation();if(action==="data")return openDataHealth();if(action==="preferences")return openInventoryManager();openDashboard();setTimeout(()=>{const selector=b.dataset.readinessProduct?`[data-inventory-search="${b.dataset.readinessProduct}"]`:"#dashboardInventory";document.querySelector(selector)?.scrollIntoView({behavior:"smooth",block:"center"})},60)};
+$("mvpReadiness").onclick=e=>{const b=e.target.closest("[data-readiness-action]");if(!b)return;const action=b.dataset.readinessAction;if(action==="location")return openLocation();if(action==="data")return openDataHealth();if(action==="preferences")return openInventoryManager();if(action==="package"&&b.dataset.readinessProduct)return openExactPackagePicker(b.dataset.readinessProduct);openDashboard();setTimeout(()=>document.querySelector("#dashboardInventory")?.scrollIntoView({behavior:"smooth",block:"center"}),60)};
 $("createShoppingBasket").onclick=openShoppingBasket;
 const bottomNav=document.querySelector(".app-bottom-nav");
 if(bottomNav)bottomNav.onclick=e=>{
@@ -2617,7 +2688,7 @@ $("inventoryManager").onchange=e=>{
   const need=e.target.closest("[data-manage-need]");if(need)need.closest("[data-manager-row]")?.querySelector(".manager-extra")?.classList.toggle("hidden",!need.checked);
   if(e.target.matches('[data-manage-dimension="formula"]')){const brand=document.querySelector('[data-manage-brand="formula"]'),old=brand?.value||"";populateBrandOptions(brand,"formula",e.target.value,old)}
 };
-$("dashboardInventory").onclick=e=>{const search=e.target.closest("[data-inventory-search]");if(search)return openProductPrices(search.dataset.inventorySearch);const button=e.target.closest("[data-dashboard-status]");if(button)return status(button.dataset.productId,button.dataset.dashboardStatus)};
+$("dashboardInventory").onclick=e=>{const photo=e.target.closest("[data-package-photo]");if(photo)return choosePackagePhoto(photo.dataset.packagePhoto);const picker=e.target.closest("[data-select-package]");if(picker)return openExactPackagePicker(picker.dataset.selectPackage);const search=e.target.closest("[data-inventory-search]");if(search)return openProductPrices(search.dataset.inventorySearch);const button=e.target.closest("[data-dashboard-status]");if(button)return status(button.dataset.productId,button.dataset.dashboardStatus)};
 $("dashboardInventory").onchange=async e=>{
   const dimension=e.target.closest("[data-inventory-dimension]");
   const brand=e.target.closest("[data-inventory-brand]");
@@ -2632,6 +2703,7 @@ $("dashboardInventory").onchange=async e=>{
 document.querySelectorAll("[data-back-category]").forEach(b=>b.onclick=()=>openCategory(activeCategory));
 $("barcodeStart").onclick=openBarcodeScanner;$("bclose").onclick=()=>$("bdlg").close();
 $("barcodePhoto").onchange=e=>{const file=e.target.files?.[0];if(file)decodeBarcodePhoto(file)};
+$("packagePhotoInput").onchange=e=>{const file=e.target.files?.[0];if(file)uploadPackagePhoto(file)};
 $("barcodeLookup").onclick=()=>lookupBarcode();$("barcodeManual").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();lookupBarcode()}};
 $("heroaction").onclick=()=>{const target=$("heroaction").dataset.target;if(target==="shopping")document.querySelector("#shop")?.scrollIntoView({behavior:"smooth",block:"center"});else document.querySelector("#products")?.scrollIntoView({behavior:"smooth",block:"start"})};
 $("filters").onclick=e=>{let b=e.target.closest("[data-f]");if(!b)return;filter=b.dataset.f;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("active",x===b));render()}
@@ -2761,7 +2833,7 @@ $("purchasesingle").onclick=()=>setPurchaseMode("single");$("purchasebundle").on
 $("paidprice").oninput=()=>{if(selectedQuote?.purchaseMode==="promotion"){selectedQuote.purchaseMode="manual";$("purchasesingle").classList.remove("active");$("purchasebundle").classList.remove("active")}updateSavingsPreview()};
 $("packcount").oninput=updateSavingsPreview;$("savepurchase").onclick=savePurchase;
 $("feedbackbox").onclick=e=>{let b=e.target.closest("[data-helpful]");if(b)sendFeedback(b.dataset.helpful==="true")};
-window.addEventListener("hashchange",()=>{if(location.hash==="#notifications"&&session&&household)openNotifications()});
+window.addEventListener("hashchange",handleAppHash);
 boot();
 </script>
 </body></html>
