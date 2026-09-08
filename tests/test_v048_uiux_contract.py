@@ -27,7 +27,7 @@ class V048UiUxContractTests(unittest.TestCase):
 
     def test_approved_home_design_is_integrated(self):
         for marker in (
-            "Dashboard v0.5",
+            "Baby Smart List",
             'class="home-overview"',
             'id="heroAttention"',
             'id="heroTrackedSummary"',

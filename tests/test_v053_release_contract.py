@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_exact_package_identity_is_visible_and_required():
     frontend = (ROOT / "index.html").read_text("utf-8")
 
-    assert "Dashboard v0.55" in frontend
+    assert "Pilot Ready v0.56" in frontend
     assert "אריזות וברקודים" in frontend
     assert 'data-select-package=' in frontend
     assert "▥ ברקוד ${esc(p.preferred_barcode)}" in frontend

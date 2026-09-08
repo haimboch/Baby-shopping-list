@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_v055_only_reports_push_active_after_server_registration():
     frontend = (ROOT / "index.html").read_text("utf-8")
-    assert "Dashboard v0.55" in frontend
     assert "pushServerRegistered" in frontend
     assert 'id="testPush"' in frontend
     assert "sendPushTest" in frontend
@@ -36,4 +35,4 @@ def test_v055_no_subscription_is_recorded_as_a_failure():
 
 def test_v055_forces_a_fresh_service_worker_cache():
     worker = (ROOT / "service-worker.js").read_text("utf-8")
-    assert 'baby-smart-v055-verified-push' in worker
+    assert 'const CACHE="baby-smart-v056-pilot-ready"' in worker

@@ -397,7 +397,7 @@ def test_v050_workflows_keep_the_shared_free_api_budget_safe():
 def test_v050_frontend_marks_online_estimates_without_claiming_store_stock():
     frontend = (ROOT / "index.html").read_text("utf-8")
     service = (ROOT / "service-worker.js").read_text("utf-8")
-    assert "Dashboard v0.5" in frontend
+    assert "Baby Smart List" in frontend
     assert "SUPER_PHARM_ONLINE_PROVIDER_ID" in frontend
     assert "nearestSuperPharm" in frontend
     assert "online_price_reference:true" in frontend
