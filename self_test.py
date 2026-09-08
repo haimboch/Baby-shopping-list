@@ -75,6 +75,14 @@ from tests.test_v055_push_diagnostics import (
     test_v055_no_subscription_is_recorded_as_a_failure,
     test_v055_forces_a_fresh_service_worker_cache,
 )
+from tests.test_v056_pilot_ready import (
+    test_v056_exposes_pilot_install_feedback_and_privacy_flows,
+    test_v056_metrics_are_allowlisted_and_can_be_disabled_on_device,
+    test_v056_new_tables_use_rls_and_minimal_api_grants,
+    test_v056_readiness_rpc_checks_membership_before_household_aggregates,
+    test_v056_household_deletion_requests_are_owner_only_and_reversible,
+    test_v056_keeps_formula_exact_only_and_push_deep_links,
+)
 
 for fn in (
     test_classifier, test_expanded_baby_product_classifier,
@@ -138,6 +146,12 @@ for fn in (
     test_v055_test_push_requires_a_real_authenticated_user,
     test_v055_no_subscription_is_recorded_as_a_failure,
     test_v055_forces_a_fresh_service_worker_cache,
+    test_v056_exposes_pilot_install_feedback_and_privacy_flows,
+    test_v056_metrics_are_allowlisted_and_can_be_disabled_on_device,
+    test_v056_new_tables_use_rls_and_minimal_api_grants,
+    test_v056_readiness_rpc_checks_membership_before_household_aggregates,
+    test_v056_household_deletion_requests_are_owner_only_and_reversible,
+    test_v056_keeps_formula_exact_only_and_push_deep_links,
 ):
     fn()
     print(f"✅ {fn.__name__}")
